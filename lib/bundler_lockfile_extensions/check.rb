@@ -23,7 +23,7 @@ require "set"
 module BundlerLockfileExtensions
   class Check
     class << self
-      def run # rubocop:disable Rails/Delegate
+      def run
         new.run
       end
     end
@@ -31,7 +31,7 @@ module BundlerLockfileExtensions
     def initialize
       default_lockfile_contents = ::Bundler.default_lockfile.read
       @default_lockfile = ::Bundler::LockfileParser.new(default_lockfile_contents)
-      @default_specs = @default_lockfile.specs.to_h do |spec| # rubocop:disable Rails/IndexBy
+      @default_specs = @default_lockfile.specs.to_h do |spec|
         [[spec.name, spec.platform], spec]
       end
     end
@@ -85,7 +85,9 @@ module BundlerLockfileExtensions
       end
 
       specs = lockfile.specs.group_by(&:name)
-      allow_mismatched_dependencies = lockfile_definition[:allow_mismatched_dependencies] if allow_mismatched_dependencies
+      if allow_mismatched_dependencies
+        allow_mismatched_dependencies = lockfile_definition[:allow_mismatched_dependencies]
+      end
 
       # build list of top-level dependencies that differ from the default lockfile,
       # and all _their_ transitive dependencies

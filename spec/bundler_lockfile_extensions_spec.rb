@@ -225,7 +225,9 @@ describe "BundlerLockfileExtensions" do
     RUBY
 
     with_gemfile(definitions, contents, all_gems_preamble) do
-      expect { invoke_bundler("install") }.to raise_error(/net-smtp \([0-9.]+\) in Gemfile.full.lock has not been pinned/)
+      expect do
+        invoke_bundler("install")
+      end.to raise_error(/net-smtp \([0-9.]+\) in Gemfile.full.lock has not been pinned/)
 
       # not only have to pin net-smtp, but also its transitive dependencies
       write_gemfile(definitions, <<~RUBY, all_gems_preamble)
@@ -268,7 +270,9 @@ describe "BundlerLockfileExtensions" do
       RUBY
 
       with_gemfile(all_gems_definitions, contents, all_gems_preamble) do
-        expect { invoke_bundler("install") }.to raise_error(/activesupport \(7.0.4.3\) in Gemfile.full.lock does not match the default lockfile's version/)
+        expect do
+          invoke_bundler("install")
+        end.to raise_error(/activesupport \(7.0.4.3\) in Gemfile.full.lock does not match the default lockfile's version/)
       end
     end
 
@@ -295,7 +299,9 @@ describe "BundlerLockfileExtensions" do
       RUBY
 
       with_gemfile(definitions, contents, all_gems_preamble) do
-        expect { invoke_bundler("install") }.to raise_error(/tzinfo \(2.0.5\) in Gemfile.full.lock does not match the default lockfile's version/)
+        expect do
+          invoke_bundler("install")
+        end.to raise_error(/tzinfo \(2.0.5\) in Gemfile.full.lock does not match the default lockfile's version/)
       end
     end
   end
@@ -335,7 +341,9 @@ describe "BundlerLockfileExtensions" do
         spec.add_dependency "zendesk_api", "1.28.0"
       RUBY
 
-      expect { invoke_bundler("install") }.to raise_error(%r{hashie \(4[0-9.]+\) in local_test/Gemfile.lock does not match the default lockfile's version \(@([0-9.]+)\)})
+      expect do
+        invoke_bundler("install")
+      end.to raise_error(%r{hashie \(4[0-9.]+\) in local_test/Gemfile.lock does not match the default lockfile's version \(@([0-9.]+)\)})
     end
   end
 

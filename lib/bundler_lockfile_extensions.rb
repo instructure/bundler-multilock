@@ -175,7 +175,7 @@ module BundlerLockfileExtensions
       ::Bundler.ui.info ""
 
       default_lockfile_contents = ::Bundler.default_lockfile.read.freeze
-      default_specs = ::Bundler::LockfileParser.new(default_lockfile_contents).specs.to_h do |spec| # rubocop:disable Rails/IndexBy
+      default_specs = ::Bundler::LockfileParser.new(default_lockfile_contents).specs.to_h do |spec|
         [[spec.name, spec.platform], spec]
       end
       default_root = ::Bundler.root
@@ -197,7 +197,8 @@ module BundlerLockfileExtensions
           up_to_date = false
           ::Bundler.settings.temporary(frozen: true) do
             ::Bundler.ui.silence do
-              up_to_date = checker.base_check(lockfile_definition) && checker.check(lockfile_definition, allow_mismatched_dependencies: false)
+              up_to_date = checker.base_check(lockfile_definition) && checker.check(lockfile_definition,
+                                                                                    allow_mismatched_dependencies: false)
             end
           end
           if up_to_date
@@ -258,7 +259,9 @@ module BundlerLockfileExtensions
               lockfile.platforms.concat(default_lockfile.platforms).uniq!
               # prune more specific platforms
               lockfile.platforms.delete_if do |p1|
-                lockfile.platforms.any? { |p2| p2 != "ruby" && p1 != p2 && ::Bundler::MatchPlatform.platforms_match?(p2, p1) }
+                lockfile.platforms.any? do |p2|
+                  p2 != "ruby" && p1 != p2 && ::Bundler::MatchPlatform.platforms_match?(p2, p1)
+                end
               end
               lockfile.instance_variable_set(:@ruby_version, default_lockfile.ruby_version)
               lockfile.instance_variable_set(:@bundler_version, default_lockfile.bundler_version)
