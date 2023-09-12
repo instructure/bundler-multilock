@@ -15,6 +15,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency "bundler", ">= 2.3.26"
 
   spec.add_development_dependency "byebug"
+  spec.add_development_dependency "rake"
   spec.add_development_dependency "rspec", "~> 3.12"
   spec.add_development_dependency "rubocop-inst"
   spec.add_development_dependency "rubocop-rake"
