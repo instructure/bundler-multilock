@@ -7,6 +7,8 @@ Gem::Specification.new do |spec|
   spec.version       = Bundler::Multilock::VERSION
   spec.authors       = ["Instructure"]
   spec.summary       = "Support Multiple Lockfiles"
+  spec.homepage      = "https://github.com/instructure/bundler-multilock"
+  spec.license       = "MIT"
   spec.metadata["rubygems_mfa_required"] = "true"
 
   spec.files         = Dir.glob("lib/**/*") + %w[plugins.rb]
@@ -14,12 +16,12 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = ">= 3.1"
 
-  spec.add_dependency "bundler", ">= 2.4.19"
+  spec.add_dependency "bundler", "~> 2.4.19"
 
-  spec.add_development_dependency "byebug"
-  spec.add_development_dependency "rake"
+  spec.add_development_dependency "byebug", "~> 11.1"
+  spec.add_development_dependency "rake", "~> 13.0"
   spec.add_development_dependency "rspec", "~> 3.12"
-  spec.add_development_dependency "rubocop-inst"
-  spec.add_development_dependency "rubocop-rake"
-  spec.add_development_dependency "rubocop-rspec"
+  spec.add_development_dependency "rubocop-inst", "~> 1.0"
+  spec.add_development_dependency "rubocop-rake", "~> 0.6"
+  spec.add_development_dependency "rubocop-rspec", "~> 2.24"
 end
