@@ -428,6 +428,26 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "updates the lockfile when only the platforms differ" do
+    with_gemfile(<<~RUBY) do
+      gem "rake"
+
+      lockfile("full")
+    RUBY
+      invoke_bundler("install")
+
+      invoke_bundler("lock --add-platform unknown")
+
+      invoke_bundler("install")
+      expect(File.read("Gemfile.full.lock")).to include("unknown")
+
+      invoke_bundler("lock --remove-platform unknown")
+
+      invoke_bundler("install")
+      expect(File.read("Gemfile.full.lock")).not_to include("unknown")
+    end
+  end
+
   private
 
   def create_local_gem(name, content)

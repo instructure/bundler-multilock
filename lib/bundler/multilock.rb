@@ -115,6 +115,7 @@ module Bundler
 
       # @!visibility private
       def after_install_all(install: true)
+        loaded!
         previous_recursive = @recursive
 
         return if lockfile_definitions.empty?
@@ -227,7 +228,7 @@ module Bundler
 
                 lockfile.specs.replace(default_lockfile.specs + lockfile.specs).uniq!
                 lockfile.sources.replace(default_lockfile.sources + lockfile.sources).uniq!
-                lockfile.platforms.concat(default_lockfile.platforms).uniq!
+                lockfile.platforms.replace(default_lockfile.platforms).uniq!
                 # prune more specific platforms
                 lockfile.platforms.delete_if do |p1|
                   lockfile.platforms.any? do |p2|
