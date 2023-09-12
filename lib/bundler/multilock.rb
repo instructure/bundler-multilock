@@ -356,12 +356,7 @@ module Bundler
 
       def write_lockfile(lockfile_definition, lockfile, install:, dependency_changes: false)
         self.prepare_block = lockfile_definition[:prepare]
-        definition = Definition.build(lockfile_definition[:gemfile], lockfile, false)
-        definition.instance_variable_set(:@dependency_changes, dependency_changes) if dependency_changes
-        if lockfile_definition[:lockfile].exist?
-          definition.instance_variable_set(:@lockfile_contents,
-                                           lockfile_definition[:lockfile].read)
-        end
+        definition = build_definition(lockfile_definition, lockfile, dependency_changes: dependency_changes)
 
         resolved_remotely = false
         begin
@@ -370,7 +365,8 @@ module Bundler
           begin
             definition.resolve_with_cache!
           rescue GemNotFound, SolveFailure
-            definition = Definition.build(lockfile_definition[:gemfile], lockfile, false)
+            definition = build_definition(lockfile_definition, lockfile, dependency_changes: dependency_changes)
+
             definition.resolve_remotely!
             resolved_remotely = true
           end
@@ -390,6 +386,16 @@ module Bundler
         !definition.nothing_changed?
       ensure
         self.prepare_block = nil
+      end
+
+      def build_definition(lockfile_definition, lockfile, dependency_changes:)
+        definition = Definition.build(lockfile_definition[:gemfile], lockfile, false)
+        definition.instance_variable_set(:@dependency_changes, dependency_changes) if dependency_changes
+        if lockfile_definition[:lockfile].exist?
+          definition.instance_variable_set(:@lockfile_contents,
+                                           lockfile_definition[:lockfile].read)
+        end
+        definition
       end
     end
 

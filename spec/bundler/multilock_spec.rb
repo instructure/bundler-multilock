@@ -449,6 +449,27 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "installs missing gems in secondary lockfile" do
+    with_gemfile(<<~RUBY) do
+      gem "rake"
+
+      lockfile do
+        gem "concurrent-ruby", "1.2.2"
+      end
+
+      lockfile("alt1") do
+        gem "concurrent-ruby", "1.2.1"
+      end
+    RUBY
+      invoke_bundler("install")
+      Bundler.with_unbundled_env do
+        `gem uninstall concurrent-ruby -v 1.2.1 2> #{File::NULL}`
+      end
+      invoke_bundler("install")
+      invoke_bundler("info concurrent-ruby", env: { "BUNDLE_LOCKFILE" => "alt1" })
+    end
+  end
+
   private
 
   def create_local_gem(name, content)
