@@ -78,6 +78,16 @@ lockfile do
 end
 ```
 
+When running other commands (such as tests), you select the desired lockfile
+with `BUNDLE_LOCKFILE`:
+
+```shell
+BUNDLE_LOCKFILE=rails-7.0 bundle exec rspec
+```
+
+You can also dynamically select it in your Gemfile, and pass `current: true`
+to (exactly one!) `lockfile` method.
+
 ## Comparison to Appraisal
 
 [Appraisal](https://github.com/thoughtbot/appraisal) is a gem that might serve
