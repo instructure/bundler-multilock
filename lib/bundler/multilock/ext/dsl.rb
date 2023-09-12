@@ -52,10 +52,10 @@ module Bundler
           @gemfile = original_gemfile
         end
 
-        def lockfile(*args, **kwargs, &)
+        def lockfile(*args, **kwargs, &block)
           return if Multilock.loaded?
 
-          Multilock.add_lockfile(*args, builder: self, **kwargs, &)
+          Multilock.add_lockfile(*args, builder: self, **kwargs, &block)
         end
       end
     end

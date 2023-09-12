@@ -489,7 +489,12 @@ describe "Bundler::Multilock" do
   def invoke_bundler(subcommand, env: {}, allow_failure: false)
     output = nil
     bundler_version = ENV.fetch("BUNDLER_VERSION")
-    command = "#{Gem.bin_path("bundler", "bundler", bundler_version)} #{subcommand}"
+    bin = begin
+      Gem.bin_path("bundler", "bundler", bundler_version)
+    rescue Gem::Exception
+      "bundler"
+    end
+    command = "#{bin} #{subcommand}"
     Bundler.with_unbundled_env do
       output, status = Open3.capture2e(env, command)
 

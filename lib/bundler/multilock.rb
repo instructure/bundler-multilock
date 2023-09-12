@@ -74,11 +74,11 @@ module Bundler
 
         lockfile_definitions << (lockfile_def = {
           gemfile: (gemfile && Bundler.root.join(gemfile).expand_path) || Bundler.default_gemfile,
-          lockfile:,
-          current:,
+          lockfile: lockfile,
+          current: current,
           prepare: block,
-          allow_mismatched_dependencies:,
-          enforce_pinned_additional_dependencies:
+          allow_mismatched_dependencies: allow_mismatched_dependencies,
+          enforce_pinned_additional_dependencies: enforce_pinned_additional_dependencies
         })
 
         if (defined?(CLI::Check) ||
@@ -184,7 +184,7 @@ module Bundler
               end
 
               Bundler.ui.info("Installing gems for #{relative_lockfile}...")
-              write_lockfile(lockfile_definition, lockfile_definition[:lockfile], install:)
+              write_lockfile(lockfile_definition, lockfile_definition[:lockfile], install: install)
             else
               Bundler.ui.info("Syncing to #{relative_lockfile}...") if attempts == 1
 
@@ -250,7 +250,10 @@ module Bundler
                 temp_lockfile.write(new_contents)
                 temp_lockfile.flush
 
-                had_changes = write_lockfile(lockfile_definition, temp_lockfile.path, install:, dependency_changes:)
+                had_changes = write_lockfile(lockfile_definition,
+                                             temp_lockfile.path,
+                                             install: install,
+                                             dependency_changes: dependency_changes)
               end
 
               # if we had changes, bundler may have updated some common
