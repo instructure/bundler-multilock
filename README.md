@@ -1,5 +1,8 @@
 # Bundler::Multilock
 
+[![Gem Version](https://img.shields.io/gem/v/bundler-multilock)](https://rubygems.org/gems/bundler-multilock)
+[![Continous Integration](https://github.com/instructure/bundler-multilock/workflows/Continuous%20Integration/badge.svg)](https://github.com/instructure/bundler-multilock/actions/workflows/ci.yml)
+
 Extends Bundler to allow arbitrarily many lockfiles (and Gemfiles!)
 for variations of the Gemfile, while keeping all of the lockfiles in sync.
 
