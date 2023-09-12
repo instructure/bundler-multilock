@@ -38,6 +38,7 @@ describe "Bundler::Multilock" do
 
         plugin "bundler-multilock", "~> 1.0"
         return unless Plugin.installed?("bundler-multilock")
+
         Plugin.send(:load_plugin, "bundler-multilock")
 
         gem "concurrent-ruby", "1.2.2"
@@ -496,6 +497,7 @@ describe "Bundler::Multilock" do
 
       plugin "bundler-multilock", "~> 1.0", path: #{File.expand_path("../..", __dir__).inspect}
       return unless Plugin.installed?("bundler-multilock")
+
       Plugin.send(:load_plugin, "bundler-multilock")
 
       #{content}

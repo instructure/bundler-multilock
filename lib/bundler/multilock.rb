@@ -308,6 +308,7 @@ module Bundler
         RUBY
         bundle_preamble2 = <<~RUBY
           return unless Plugin.installed?("bundler-multilock")
+
           Plugin.send(:load_plugin, "bundler-multilock")
         RUBY
 
