@@ -53,7 +53,7 @@ module Bundler
         end
 
         def lockfile(*args, **kwargs, &block)
-          return if Multilock.loaded?
+          return true if Multilock.loaded?
 
           Multilock.add_lockfile(*args, builder: self, **kwargs, &block)
         end
