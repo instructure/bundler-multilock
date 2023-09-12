@@ -18,20 +18,21 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-module BundlerLockfileExtensions
-  module Bundler
-    module Definition
-      def initialize(lockfile, *args)
-        if ENV["BUNDLE_LOCKFILE"] && !::Bundler.instance_variable_get(:@default_lockfile)
-          raise ::Bundler::GemfileNotFound, "Could not locate lockfile #{ENV["BUNDLE_LOCKFILE"].inspect}"
-        end
+module Bundler
+  module Multilock
+    module Ext
+      module Definition
+        ::Bundler::Definition.prepend(self)
 
-        # we changed the default lockfile in BundlerLockfileExtensions.add_lockfile
-        # since DSL.evaluate was called (re-entrantly); sub the proper value in
-        if !lockfile.equal?(::Bundler.default_lockfile) && ::Bundler.default_lockfile(force_original: true) == lockfile
-          lockfile = ::Bundler.default_lockfile
+        def initialize(lockfile, *args)
+          # we changed the default lockfile in Bundler::Multilock.add_lockfile
+          # since DSL.evaluate was called (re-entrantly); sub the proper value in
+          if !lockfile.equal?(Bundler.default_lockfile) &&
+             Bundler.default_lockfile(force_original: true) == lockfile
+            lockfile = Bundler.default_lockfile
+          end
+          super
         end
-        super
       end
     end
   end

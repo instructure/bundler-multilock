@@ -1,8 +1,8 @@
 PATH
   remote: .
   specs:
-    bundler_lockfile_extensions (0.0.2)
-      bundler (>= 2.3.26)
+    bundler-multilock (1.0.0)
+      bundler (>= 2.4.19)
 
 GEM
   remote: https://rubygems.org/
@@ -76,7 +76,7 @@ PLATFORMS
   x86_64-linux
 
 DEPENDENCIES
-  bundler_lockfile_extensions!
+  bundler-multilock!
   byebug
   rake
   rspec (~> 3.12)

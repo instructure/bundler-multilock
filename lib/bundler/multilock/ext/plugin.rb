@@ -18,12 +18,19 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-module BundlerLockfileExtensions
-  module Bundler
-    module SourceList
-      # consider them equivalent if the replacements just have a bunch of dups
-      def equivalent_sources?(lock_sources, replacement_sources)
-        super(lock_sources, replacement_sources.uniq)
+module Bundler
+  module Multilock
+    module Ext
+      module PluginExt
+        module ClassMethods
+          ::Bundler::Plugin.singleton_class.prepend(self)
+
+          def load_plugin(name)
+            return if @loaded_plugin_names.include?(name)
+
+            super
+          end
+        end
       end
     end
   end

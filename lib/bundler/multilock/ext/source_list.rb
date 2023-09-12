@@ -18,11 +18,16 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-module BundlerLockfileExtensions
-  module Bundler
-    module Dsl
-      def add_lockfile(*args, **kwargs)
-        BundlerLockfileExtensions.add_lockfile(*args, builder: self, **kwargs)
+module Bundler
+  module Multilock
+    module Ext
+      module SourceList
+        ::Bundler::SourceList.prepend(self)
+
+        # consider them equivalent if the replacements just have a bunch of dups
+        def equivalent_sources?(lock_sources, replacement_sources)
+          super(lock_sources, replacement_sources.uniq)
+        end
       end
     end
   end
