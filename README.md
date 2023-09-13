@@ -105,7 +105,7 @@ keeping dependencies in lockfiles for multiple gems in sync.
 ### Upgrading from Appraisal to Bundler::Multilock
 
 First, remove appraisal from your Gemfile or gemspec, then install
-Bundler::Multilock as above. Then mv the contents of your Appraisals file into
+Bundler::Multilock as above. Then move the contents of your Appraisals file into
 your Gemfile, just below the the newly added lines from Bundler::Multilock.
 Change the method from `appraise` to `lockfile`. Assuming you've committed
 all of your lockfiles, move them from `gemfiles/*.gemfile.lock` to
@@ -116,3 +116,55 @@ value), and remove any `appraisal install` steps, since they're now redundant.
 Bundler::Multilock doesn't have a separate executable to repeat a command for
 each lockfile, so you'll need to handle that yourself if you're using
 something like `appraisal bundle exec rspec`.
+
+## Comparison to Bootboot
+
+[Bootboot](https://github.com/Shopify/bootboot) is a similar Bundler plugin
+that allows multiple lockfiles. It generally has a much narrower scope than
+Bundler::Multilock, though. Bootboot only allows two lockfiles, with a fixed
+name for the alternate lockfile, while Bundler::Multilock allows an arbitrary
+number with arbitrary names. Bootboots synchronization method for the
+alternate lockfile is relatively naive - essentially doing the equivalent
+of `bundle update --all` on the other lockfile, instead of propagating only
+the updated dependencies they have in common. Bundler::Multilock also has
+robust mechanisms to ensure that dependencies don't end up being mismatched
+outside of the normal workflow. Bootboot uses the `DEPENDENCIES_NEXT`
+environment variable to select the lockfile, while Bundler::Multilock uses
+`BUNDLER_LOCKFILE` to select a specific lockfile, as well as allowing the
+Gemfile itself to dynamically select a specific lockfile using any means it
+would like. Bundler::Multilock also features keeping lockfiles in sync amongst
+otherwise unrelated Gemfiles, such as if you have vendored gems in your
+repository. One feature that differs significantly is Bootboot supports
+varying Ruby versions between lockfiles, and ensuring that only compatible gems
+are installed as appropriate. Bundler::Multilock does not yet handle this,
+and requires the Ruby version to match among all lockfiles.
+
+### Upgrading from Bootboot to Bundler::Multilock
+
+First, remove Bootboot's plugin bootstrapping from your Gemfile, then install
+Bundler::Multilock as above. Alter your Gemfile as appropriate, similar to this:
+
+```ruby
+# original Gemfile
+
+if ENV['DEPENDENCIES_NEXT']
+  gem "rails", "~> 5.2.0"
+else
+  gem "rails", "~> 5.1.0"
+end
+```
+
+```ruby
+# updated Gemfile
+
+lockfile "Gemfile_next.lock" do
+  gem "rails", "~> 5.2.0"
+end
+
+lockfile do
+  gem "rails", "~> 5.1.0"
+end
+```
+
+Be sure to update any tooling that uses `DEPENDENCIES_NEXT` to use `BUNDLE_LOCKFILE`
+(with the appropriate changes to its value).
