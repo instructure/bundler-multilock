@@ -14,6 +14,7 @@ module Bundler
           #  * mark Multilock as loaded once the main gemfile is evaluated
           #    so that they're not loaded multiple times
           def evaluate(gemfile, lockfile, unlock)
+            Multilock.loaded! unless Multilock.lockfile_definitions.empty?
             builder = new
             builder.eval_gemfile(gemfile, &Multilock.prepare_block) if Multilock.prepare_block
             builder.eval_gemfile(gemfile)

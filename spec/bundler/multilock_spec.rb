@@ -470,6 +470,19 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "doesn't break outdated" do
+    with_gemfile(<<~RUBY) do
+      gem "rake"
+
+      lockfile("alt1") do
+        gem "concurrent-ruby", "1.2.1"
+      end
+    RUBY
+      invoke_bundler("install")
+      invoke_bundler("outdated")
+    end
+  end
+
   private
 
   def create_local_gem(name, content)
