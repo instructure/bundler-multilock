@@ -283,13 +283,20 @@ module Bundler
 
         @loaded = true
         return if lockfile_definitions.empty?
+
         return unless lockfile_definitions.none? { |definition| definition[:current] }
+
         # Gemfile.lock isn't explicitly specified, otherwise it would be current
-        return if lockfile_definitions.none? do |definition|
-                    definition[:lockfile] == Bundler.default_lockfile(force_original: true)
-                  end
+        default_lockfile_definition = lockfile_definitions.find do |definition|
+          definition[:lockfile] == Bundler.default_lockfile(force_original: true)
+        end
+        if ENV["BUNDLE_LOCKFILE"] == Bundler.default_lockfile(force_original: true) && default_lockfile_definition
+          return
+        end
 
         raise GemfileNotFound, "Could not locate lockfile #{ENV["BUNDLE_LOCKFILE"].inspect}" if ENV["BUNDLE_LOCKFILE"]
+
+        return unless default_lockfile_definition && default_lockfile_definition[:current] == false
 
         raise GemfileEvalError, "No lockfiles marked as default"
       end

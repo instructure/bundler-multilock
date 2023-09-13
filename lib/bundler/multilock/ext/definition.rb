@@ -15,6 +15,12 @@ module Bundler
           end
           super
         end
+
+        def validate_runtime!
+          Multilock.loaded! unless Multilock.lockfile_definitions.empty?
+
+          super
+        end
       end
     end
   end

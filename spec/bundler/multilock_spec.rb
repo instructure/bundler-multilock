@@ -64,6 +64,24 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "allows defaulting to an alternate lockfile" do
+    with_gemfile(<<~RUBY) do
+      lockfile(default: false)
+      lockfile("full", default: true)
+    RUBY
+      invoke_bundler("install")
+    end
+  end
+
+  it "disallows no lockfile set as the default" do
+    with_gemfile(<<~RUBY) do
+      lockfile(default: false)
+      lockfile("full")
+    RUBY
+      expect { invoke_bundler("install") }.to raise_error(/No lockfiles marked as default/)
+    end
+  end
+
   it "generates custom lockfiles with varying versions" do
     with_gemfile(<<~RUBY) do
       lockfile do
@@ -493,6 +511,28 @@ describe "Bundler::Multilock" do
     RUBY
       invoke_bundler("install")
       invoke_bundler("env")
+    end
+  end
+
+  it "errors if you specify a non-existent lockfile" do
+    with_gemfile(<<~RUBY) do
+      gem "rake"
+
+      lockfile("alt1") do
+        gem "concurrent-ruby", "1.2.1"
+      end
+    RUBY
+      invoke_bundler("install")
+      expect { invoke_bundler("exec rake -v", env: { "BUNDLE_LOCKFILE" => "alt2" }) }
+        .to raise_error(/Could not locate lockfile "alt2"/)
+
+      invoke_bundler("binstub rake")
+      Bundler.with_unbundled_env do
+        ENV["BUNDLE_LOCKFILE"] = "alt2"
+        expect(`bin/rake -v 2>&1`).to match(/Could not locate lockfile "alt2"/)
+      ensure
+        ENV.delete("BUNDLE_LOCKFILE")
+      end
     end
   end
 
