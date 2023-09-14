@@ -536,6 +536,37 @@ describe "Bundler::Multilock" do
     end
   end
 
+  # so that it won't downgrade if that's all you have available
+  it "installs missing deps from alternate lockfiles before syncing" do
+    Bundler.with_unbundled_env do
+      `gem uninstall activesupport -a --force 2> #{File::NULL}`
+      `gem install activesupport -v 6.1.7.6`
+    end
+
+    with_gemfile(<<~RUBY) do
+      lockfile() do
+        gem "activemodel", ">= 6.0"
+      end
+
+      lockfile("rails-6.1") do
+        gem "activemodel", "~> 6.1.0"
+      end
+    RUBY
+      invoke_bundler("install")
+      expect(invoke_bundler("info activesupport", env: { "BUNDLE_LOCKFILE" => "rails-6.1" })).to include("6.1.7.6")
+
+      Bundler.with_unbundled_env do
+        `gem uninstall activesupport -v 6.1.7.6 --force 2> #{File::NULL}`
+        `gem install activesupport -v 6.1.6`
+      end
+
+      invoke_bundler("install")
+
+      # it should have re-installed 6.1.7.6, leaving the lockfile alone
+      expect(invoke_bundler("info activesupport", env: { "BUNDLE_LOCKFILE" => "rails-6.1" })).to include("6.1.7.6")
+    end
+  end
+
   private
 
   def create_local_gem(name, content)

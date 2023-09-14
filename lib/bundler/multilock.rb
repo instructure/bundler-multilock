@@ -362,8 +362,36 @@ module Bundler
       end
 
       def write_lockfile(lockfile_definition, lockfile, install:, dependency_changes: false)
-        self.prepare_block = lockfile_definition[:prepare]
-        definition = build_definition(lockfile_definition, lockfile, dependency_changes: dependency_changes)
+        prepare_block = lockfile_definition[:prepare]
+
+        gemfile = lockfile_definition[:gemfile]
+        # use avoid Definition.build, so that we don't have to evaluate
+        # the gemfile multiple times, each time we need a separate definition
+        builder = Dsl.new
+        builder.eval_gemfile(gemfile, &prepare_block) if prepare_block
+        builder.eval_gemfile(gemfile)
+
+        definition = builder.to_definition(lockfile, {})
+        definition.instance_variable_set(:@dependency_changes, dependency_changes) if dependency_changes
+        orig_definition = definition.dup # we might need it twice
+
+        current_lockfile = lockfile_definition[:lockfile]
+        if current_lockfile.exist?
+          definition.instance_variable_set(:@lockfile_contents, current_lockfile.read)
+          if install
+            current_definition = builder.to_definition(current_lockfile, {})
+            begin
+              current_definition.resolve_only_locally!
+              if current_definition.missing_specs.any?
+                Bundler.with_default_lockfile(current_lockfile) do
+                  Installer.install(gemfile.dirname, current_definition, {})
+                end
+              end
+            rescue RubyVersionMismatch, GemNotFound, SolveFailure
+              # ignore
+            end
+          end
+        end
 
         resolved_remotely = false
         begin
@@ -372,7 +400,7 @@ module Bundler
           begin
             definition.resolve_with_cache!
           rescue GemNotFound, SolveFailure
-            definition = build_definition(lockfile_definition, lockfile, dependency_changes: dependency_changes)
+            definition = orig_definition
 
             definition.resolve_remotely!
             resolved_remotely = true
@@ -391,18 +419,6 @@ module Bundler
         end
 
         !definition.nothing_changed?
-      ensure
-        self.prepare_block = nil
-      end
-
-      def build_definition(lockfile_definition, lockfile, dependency_changes:)
-        definition = Definition.build(lockfile_definition[:gemfile], lockfile, false)
-        definition.instance_variable_set(:@dependency_changes, dependency_changes) if dependency_changes
-        if lockfile_definition[:lockfile].exist?
-          definition.instance_variable_set(:@lockfile_contents,
-                                           lockfile_definition[:lockfile].read)
-        end
-        definition
       end
     end
 
