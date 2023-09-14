@@ -24,6 +24,7 @@ module Bundler
 
         success = true
         Multilock.lockfile_definitions.each do |lockfile_definition|
+          next if lockfile_definition[:lockfile] == Bundler.default_lockfile
           next unless lockfile_definition[:lockfile].exist?
 
           success = false unless check(lockfile_definition)
