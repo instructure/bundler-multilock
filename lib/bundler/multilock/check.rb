@@ -23,10 +23,20 @@ module Bundler
         return true unless Bundler.default_lockfile.exist?
 
         success = true
+        missing_specs = base_check({ gemfile: Bundler.default_gemfile, lockfile: Bundler.default_lockfile },
+                                   return_missing: true).to_set
+
         Multilock.lockfile_definitions.each do |lockfile_definition|
           next if lockfile_definition[:lockfile] == Bundler.default_lockfile
-          next unless lockfile_definition[:lockfile].exist?
 
+          unless lockfile_definition[:lockfile].exist?
+            Bundler.ui.error("Lockfile #{lockfile_definition[:lockfile]} does not exist.")
+            success = false
+          end
+
+          new_missing = base_check(lockfile_definition, log_missing: missing_specs, return_missing: true)
+          success = false unless new_missing.empty?
+          missing_specs.merge(new_missing)
           success = false unless check(lockfile_definition)
         end
         success
@@ -34,20 +44,31 @@ module Bundler
 
       # this is mostly equivalent to the built in checks in `bundle check`, but even
       # more conservative, and returns false instead of exiting on failure
-      def base_check(lockfile_definition)
-        return false unless lockfile_definition[:lockfile].file?
+      def base_check(lockfile_definition, log_missing: false, return_missing: false)
+        return return_missing ? [] : false unless lockfile_definition[:lockfile].file?
 
         Multilock.prepare_block = lockfile_definition[:prepare]
         definition = Definition.build(lockfile_definition[:gemfile], lockfile_definition[:lockfile], false)
-        return false unless definition.send(:current_platform_locked?)
+        return return_missing ? [] : false unless definition.send(:current_platform_locked?)
 
         begin
           definition.validate_runtime!
           definition.resolve_only_locally!
           not_installed = definition.missing_specs
         rescue RubyVersionMismatch, GemNotFound, SolveFailure
-          return false
+          return return_missing ? [] : false
         end
+
+        if log_missing
+          not_installed.each do |spec|
+            next if log_missing.include?(spec)
+
+            Bundler.ui.error "The following gems are missing" if log_missing.empty?
+            Bundler.ui.error(" * #{spec.name} (#{spec.version})")
+          end
+        end
+
+        return not_installed if return_missing
 
         not_installed.empty? && definition.no_resolve_needed?
       ensure

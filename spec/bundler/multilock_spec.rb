@@ -560,6 +560,7 @@ describe "Bundler::Multilock" do
         `gem install activesupport -v 6.1.6`
       end
 
+      expect { invoke_bundler("check") }.to raise_error(/The following gems are missing/)
       invoke_bundler("install")
 
       # it should have re-installed 6.1.7.6, leaving the lockfile alone
