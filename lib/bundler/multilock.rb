@@ -85,10 +85,13 @@ module Bundler
             defined?(CLI::Install) ||
             defined?(CLI::Lock) ||
             defined?(CLI::Update)) &&
-           !defined?(CLI::Cache)
+           !defined?(CLI::Cache) && !env_lockfile
           # always use Gemfile.lock for `bundle check`, `bundle install`,
           # `bundle lock`, and `bundle update`. `bundle cache` delegates to
           # `bundle install`, but we want that to run as normal.
+          # If they're using BUNDLE_LOCKFILE, then they really do want to
+          # use a particular lockfile, and it overrides whatever they
+          # dynamically set in their gemfile
           current = lockfile == Bundler.default_lockfile(force_original: true)
         end
 
