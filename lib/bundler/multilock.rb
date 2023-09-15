@@ -152,6 +152,7 @@ module Bundler
         attempts = 1
 
         checker = Check.new
+        synced_any = false
         Bundler.settings.temporary(cache_all_platforms: true, suppress_install_using_messages: true) do
           lockfile_definitions.each do |lockfile_definition|
             # we already wrote the default lockfile
@@ -188,6 +189,7 @@ module Bundler
               write_lockfile(lockfile_definition, lockfile_definition[:lockfile], install: install)
             else
               Bundler.ui.info("Syncing to #{relative_lockfile}...") if attempts == 1
+              synced_any = true
 
               # adjust locked paths from the default lockfile to be relative to _this_ gemfile
               adjusted_default_lockfile_contents =
@@ -272,7 +274,7 @@ module Bundler
           end
         end
 
-        exit 1 unless checker.run
+        exit 1 unless checker.run(skip_base_checks: !synced_any)
       ensure
         @recursive = previous_recursive
       end

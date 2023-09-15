@@ -19,13 +19,14 @@ module Bundler
         end
       end
 
-      def run
+      def run(skip_base_checks: false)
         return true unless Bundler.default_lockfile.exist?
 
         success = true
-        missing_specs = base_check({ gemfile: Bundler.default_gemfile, lockfile: Bundler.default_lockfile },
-                                   return_missing: true).to_set
-
+        unless skip_base_checks
+          missing_specs = base_check({ gemfile: Bundler.default_gemfile, lockfile: Bundler.default_lockfile },
+                                     return_missing: true).to_set
+        end
         Multilock.lockfile_definitions.each do |lockfile_definition|
           next if lockfile_definition[:lockfile] == Bundler.default_lockfile
 
@@ -34,9 +35,11 @@ module Bundler
             success = false
           end
 
-          new_missing = base_check(lockfile_definition, log_missing: missing_specs, return_missing: true)
-          success = false unless new_missing.empty?
-          missing_specs.merge(new_missing)
+          unless skip_base_checks
+            new_missing = base_check(lockfile_definition, log_missing: missing_specs, return_missing: true)
+            success = false unless new_missing.empty?
+            missing_specs.merge(new_missing)
+          end
           success = false unless check(lockfile_definition)
         end
         success
@@ -53,7 +56,9 @@ module Bundler
 
         begin
           definition.validate_runtime!
-          definition.resolve_only_locally!
+          Bundler.ui.silence do
+            definition.resolve_only_locally!
+          end
           not_installed = definition.missing_specs
         rescue RubyVersionMismatch, GemNotFound, SolveFailure
           return return_missing ? [] : false
