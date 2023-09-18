@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    bundler-multilock (1.0.7)
+    bundler-multilock (1.0.8)
       bundler (~> 2.4.19)
 
 GEM
