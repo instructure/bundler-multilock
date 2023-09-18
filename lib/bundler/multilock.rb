@@ -275,6 +275,8 @@ module Bundler
               end
             end
           end
+        ensure
+          Bundler.root = default_root
         end
 
         exit 1 unless checker.run(skip_base_checks: !synced_any)
