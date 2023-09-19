@@ -339,8 +339,13 @@ module Bundler
           end
         end
 
-        modified = inject_specific_preamble(gemfile, injection_point, bundle_preamble2, add_newline: true)
+        builder = Bundler::Plugin::DSL.new
+        builder.eval_gemfile(Bundler.default_gemfile)
+        gemfiles = builder.instance_variable_get(:@gemfiles).map(&:read)
+
+        modified = inject_specific_preamble(gemfile, gemfiles, injection_point, bundle_preamble2, add_newline: true)
         modified = true if inject_specific_preamble(gemfile,
+                                                    gemfiles,
                                                     injection_point,
                                                     bundle_preamble1,
                                                     match: bundle_preamble1_match,
@@ -357,8 +362,8 @@ module Bundler
 
       private
 
-      def inject_specific_preamble(gemfile, injection_point, preamble, add_newline:, match: preamble)
-        return false if gemfile.include?(match)
+      def inject_specific_preamble(gemfile, gemfiles, injection_point, preamble, add_newline:, match: preamble)
+        return false if gemfiles.any? { |g| g.include?(match) }
 
         add_newline = false unless gemfile[injection_point - 1] == "\n"
 
@@ -435,3 +440,5 @@ module Bundler
     @prepare_block = nil
   end
 end
+
+Bundler::Multilock.inject_preamble unless Bundler::Multilock.loaded?

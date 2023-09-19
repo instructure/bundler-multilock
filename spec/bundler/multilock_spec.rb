@@ -46,6 +46,30 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "does not inject when a secondary Gemfile has the necessary commands" do
+    with_gemfile("") do
+      File.write("Gemfile", <<~RUBY)
+        # frozen_string_literal: true
+
+        source "https://rubygems.org"
+
+        eval_gemfile("injected.rb")
+      RUBY
+
+      File.write("injected.rb", <<~RUBY)
+        plugin "bundler-multilock", "~> 1.0", path: #{File.expand_path("../..", __dir__).inspect}
+        return unless Plugin.installed?("bundler-multilock")
+
+        Plugin.send(:load_plugin, "bundler-multilock")
+
+        gem "concurrent-ruby", "1.2.2"
+      RUBY
+
+      invoke_bundler("install")
+      expect(File.read("Gemfile")).not_to include("bundler-multilock")
+    end
+  end
+
   it "disallows duplicate lockfiles" do
     with_gemfile(<<~RUBY) do
       lockfile()
