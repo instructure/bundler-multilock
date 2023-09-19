@@ -395,7 +395,6 @@ module Bundler
           if install
             current_definition = builder.to_definition(current_lockfile, {})
             begin
-              current_definition.resolve_only_locally!
               if current_definition.missing_specs.any?
                 Bundler.with_default_lockfile(current_lockfile) do
                   Installer.install(gemfile.dirname, current_definition, {})
