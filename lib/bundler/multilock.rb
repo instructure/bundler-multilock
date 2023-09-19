@@ -48,7 +48,9 @@ module Bundler
         current = true if current.nil? && lockfile_definitions.empty? && lockfile.nil? && gemfile.nil?
 
         # allow short-form lockfile names
-        lockfile = "Gemfile.#{lockfile}.lock" if lockfile && !(lockfile.include?("/") || lockfile.end_with?(".lock"))
+        if lockfile.is_a?(String) && !(lockfile.include?("/") || lockfile.end_with?(".lock"))
+          lockfile = "Gemfile.#{lockfile}.lock"
+        end
         # if a gemfile was provided, but not a lockfile, infer the default lockfile for that gemfile
         lockfile ||= "#{gemfile}.lock" if gemfile
         # use absolute paths
