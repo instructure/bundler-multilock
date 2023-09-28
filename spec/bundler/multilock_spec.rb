@@ -592,6 +592,25 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "updates bundler version in secondary lockfiles" do
+    with_gemfile(<<~RUBY) do
+      gem "rake"
+
+      lockfile("alt1") do
+        gem "concurrent-ruby", "1.2.1"
+      end
+    RUBY
+      invoke_bundler("install")
+
+      update_lockfile_bundler("Gemfile.alt1.lock", "2.4.18")
+
+      invoke_bundler("install")
+
+      expect(File.read("Gemfile.alt1.lock")).not_to include("2.4.18")
+      expect(File.read("Gemfile.alt1.lock")).to include(Bundler::VERSION)
+    end
+  end
+
   private
 
   def create_local_gem(name, content)
@@ -677,6 +696,12 @@ describe "Bundler::Multilock" do
   # @param version [String] The new version to "pin" the gem to
   def replace_lockfile_pin(lockfile, gem, version)
     new_contents = File.read(lockfile).gsub(%r{#{gem} \([0-9.]+\)}, "#{gem} (#{version})")
+
+    File.write(lockfile, new_contents)
+  end
+
+  def update_lockfile_bundler(lockfile, version)
+    new_contents = File.read(lockfile).gsub(/BUNDLED WITH\n   [0-9.]+/, "BUNDLED WITH\n  #{version}")
 
     File.write(lockfile, new_contents)
   end
