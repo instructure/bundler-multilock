@@ -146,6 +146,7 @@ module Bundler
         require "tempfile"
         require_relative "multilock/lockfile_generator"
 
+        Bundler.ui.debug("Syncing to alternate lockfiles")
         Bundler.ui.info ""
 
         default_lockfile_contents = Bundler.default_lockfile.read.freeze
@@ -321,6 +322,8 @@ module Bundler
 
       # @!visibility private
       def inject_preamble
+        Bundler.ui.debug("Injecting multilock preamble")
+
         minor_version = Gem::Version.new(::Bundler::Multilock::VERSION).segments[0..1].join(".")
         bundle_preamble1_match = %(plugin "bundler-multilock")
         bundle_preamble1 = <<~RUBY
@@ -346,7 +349,16 @@ module Bundler
         end
 
         builder = Bundler::Plugin::DSL.new
-        builder.eval_gemfile(Bundler.default_gemfile)
+        # this method is called as part of the plugin loading, but @loaded_plugin_names
+        # hasn't been set yet, so avoid re-entrancy issues
+        plugins = Bundler::Plugin.instance_variable_get(:@loaded_plugin_names)
+        original_plugins = plugins.dup
+        plugins << "bundler-multilock"
+        begin
+          builder.eval_gemfile(Bundler.default_gemfile)
+        ensure
+          plugins.replace(original_plugins)
+        end
         gemfiles = builder.instance_variable_get(:@gemfiles).map(&:read)
 
         modified = inject_specific_preamble(gemfile, gemfiles, injection_point, bundle_preamble2, add_newline: true)
@@ -448,3 +460,26 @@ module Bundler
 end
 
 Bundler::Multilock.inject_preamble unless Bundler::Multilock.loaded?
+
+# this is terrible, but we can't prepend into these modules because we only load
+# _inside_ of the CLI commands already running
+if defined?(Bundler::CLI::Check)
+  require_relative "multilock/check"
+  at_exit do
+    next unless $!.nil?
+    next if $!.is_a?(SystemExit) && !$!.success?
+
+    next if Bundler::Multilock::Check.run
+
+    Bundler.ui.warn("You can attempt to fix by running `bundle install`")
+    exit 1
+  end
+end
+if defined?(Bundler::CLI::Lock)
+  at_exit do
+    next unless $!.nil?
+    next if $!.is_a?(SystemExit) && !$!.success?
+
+    Bundler::Multilock.after_install_all(install: false)
+  end
+end

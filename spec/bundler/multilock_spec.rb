@@ -192,7 +192,7 @@ describe "Bundler::Multilock" do
 
       gem "concurrent-ruby", "1.2.2"
     RUBY
-      create_local_gem("test_local", "")
+      create_local_gem("test_local")
 
       invoke_bundler("install")
 
@@ -611,11 +611,32 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "only syncs once per lockfile" do
+    with_gemfile(<<~RUBY) do
+      gemspec
+
+      lockfile("rails-7.0", default: true) do
+        gem "activesupport", "~> 7.0.0"
+      end
+    RUBY
+      create_local_gem("test", subdirectory: false)
+      invoke_bundler("install")
+      output = invoke_bundler("install", env: { "DEBUG" => "1" })
+
+      expect(output.split("\n").grep(/Syncing to alternate lockfiles/).length).to be 1
+    end
+  end
+
   private
 
-  def create_local_gem(name, content)
-    FileUtils.mkdir_p(name)
-    File.write("#{name}/#{name}.gemspec", <<~RUBY)
+  def create_local_gem(name, content = "", subdirectory: true)
+    if subdirectory
+      FileUtils.mkdir_p(name)
+      subdirectory = "#{name}/"
+    else
+      subdirectory = nil
+    end
+    File.write("#{subdirectory}#{name}.gemspec", <<~RUBY)
       Gem::Specification.new do |spec|
         spec.name          = #{name.inspect}
         spec.version       = "0.0.1"
@@ -625,6 +646,8 @@ describe "Bundler::Multilock" do
         #{content}
       end
     RUBY
+
+    return unless subdirectory
 
     File.write("#{name}/Gemfile", <<~RUBY)
       source "https://rubygems.org"
