@@ -5,6 +5,7 @@ require_relative "multilock/ext/definition"
 require_relative "multilock/ext/dsl"
 require_relative "multilock/ext/plugin"
 require_relative "multilock/ext/plugin/dsl"
+require_relative "multilock/ext/shared_helpers"
 require_relative "multilock/ext/source"
 require_relative "multilock/ext/source_list"
 require_relative "multilock/version"
@@ -427,7 +428,7 @@ module Bundler
         end
 
         resolved_remotely = false
-        begin
+        accesses = begin
           previous_ui_level = Bundler.ui.level
           Bundler.ui.level = "warn"
           begin
@@ -438,7 +439,9 @@ module Bundler
             definition.resolve_remotely!
             resolved_remotely = true
           end
-          definition.lock(lockfile_definition[:lockfile], true)
+          SharedHelpers.capture_filesystem_access do
+            definition.lock(lockfile_definition[:lockfile], true)
+          end
         ensure
           Bundler.ui.level = previous_ui_level
         end
@@ -451,7 +454,7 @@ module Bundler
           end
         end
 
-        !definition.nothing_changed?
+        accesses && !accesses.empty?
       end
     end
 
