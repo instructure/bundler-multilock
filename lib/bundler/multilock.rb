@@ -20,8 +20,9 @@ module Bundler
       # @param builder [Dsl] The Bundler DSL
       # @param gemfile [String, nil]
       #   The Gemfile for this lockfile (defaults to Gemfile)
-      # @param default [Boolean]
+      # @param active [Boolean]
       #   If this lockfile should be the default (instead of Gemfile.lock)
+      #   BUNDLE_LOCKFILE will still override a lockfile tagged as active
       # @param allow_mismatched_dependencies [true, false]
       #   Allows version differences in dependencies between this lockfile and
       #   the default lockfile. Note that even with this option, only top-level
@@ -32,20 +33,20 @@ module Bundler
       #   default lockfile, enforce that they are pinned.
       # @yield
       #   Block executed only when this lockfile is active.
-      # @return [true, false] if the lockfile is the current lockfile
+      # @return [true, false] if the lockfile is the active lockfile
       def add_lockfile(lockfile = nil,
                        builder:,
                        gemfile: nil,
+                       active: nil,
                        default: nil,
                        allow_mismatched_dependencies: true,
                        enforce_pinned_additional_dependencies: false,
                        &block)
-        # terminology gets confusing here. The "default" param means
-        # "use this lockfile when not overridden by BUNDLE_LOCKFILE"
-        # but Bundler.defaul_lockfile (usually) means "Gemfile.lock"
-        # so refer to the former as "current" internally
-        current = default
-        current = true if current.nil? && lockfile_definitions.empty? && lockfile.nil? && gemfile.nil?
+        # backcompat
+        active = default if active.nil?
+        Bundler.ui.warn("lockfile(default:) is deprecated. Use lockfile(active:) instead.") if default
+
+        active = true if active.nil? && lockfile_definitions.empty? && lockfile.nil? && gemfile.nil?
 
         # allow short-form lockfile names
         if lockfile.is_a?(String) && !(lockfile.include?("/") || lockfile.end_with?(".lock"))
@@ -67,17 +68,17 @@ module Bundler
             env_lockfile = "Gemfile.#{env_lockfile}.lock"
           end
           env_lockfile = Bundler.root.join(env_lockfile).expand_path
-          current = env_lockfile == lockfile
+          active = env_lockfile == lockfile
         end
 
-        if current && (old_current = lockfile_definitions.find { |definition| definition[:current] })
-          raise ArgumentError, "Only one lockfile (#{old_current[:lockfile]}) can be flagged as the default"
+        if active && (old_active = lockfile_definitions.find { |definition| definition[:active] })
+          raise ArgumentError, "Only one lockfile (#{old_active[:lockfile]}) can be flagged as the default"
         end
 
         lockfile_definitions << (lockfile_def = {
           gemfile: (gemfile && Bundler.root.join(gemfile).expand_path) || Bundler.default_gemfile,
           lockfile: lockfile,
-          current: current,
+          active: active,
           prepare: block,
           allow_mismatched_dependencies: allow_mismatched_dependencies,
           enforce_pinned_additional_dependencies: enforce_pinned_additional_dependencies
@@ -94,10 +95,10 @@ module Bundler
           # If they're using BUNDLE_LOCKFILE, then they really do want to
           # use a particular lockfile, and it overrides whatever they
           # dynamically set in their gemfile
-          current = lockfile == Bundler.default_lockfile(force_original: true)
+          active = lockfile == Bundler.default_lockfile(force_original: true)
         end
 
-        if current
+        if active
           block&.call
           Bundler.default_lockfile = lockfile
 
@@ -297,9 +298,9 @@ module Bundler
         @loaded = true
         return if lockfile_definitions.empty?
 
-        return unless lockfile_definitions.none? { |definition| definition[:current] }
+        return unless lockfile_definitions.none? { |definition| definition[:active] }
 
-        # Gemfile.lock isn't explicitly specified, otherwise it would be current
+        # Gemfile.lock isn't explicitly specified, otherwise it would be active
         default_lockfile_definition = lockfile_definitions.find do |definition|
           definition[:lockfile] == Bundler.default_lockfile(force_original: true)
         end
@@ -309,7 +310,7 @@ module Bundler
 
         raise GemfileNotFound, "Could not locate lockfile #{ENV["BUNDLE_LOCKFILE"].inspect}" if ENV["BUNDLE_LOCKFILE"]
 
-        return unless default_lockfile_definition && default_lockfile_definition[:current] == false
+        return unless default_lockfile_definition && default_lockfile_definition[:active] == false
 
         raise GemfileEvalError, "No lockfiles marked as default"
       end
