@@ -5,6 +5,7 @@ require_relative "multilock/ext/definition"
 require_relative "multilock/ext/dsl"
 require_relative "multilock/ext/plugin"
 require_relative "multilock/ext/plugin/dsl"
+require_relative "multilock/ext/source"
 require_relative "multilock/ext/source_list"
 require_relative "multilock/version"
 
