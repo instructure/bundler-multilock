@@ -391,23 +391,23 @@ module Bundler
 
         definition = builder.to_definition(lockfile, { bundler: unlocking_bundler })
         definition.instance_variable_set(:@dependency_changes, dependency_changes) if dependency_changes
-        orig_definition = definition.dup # we might need it twice
 
         current_lockfile = lockfile_definition[:lockfile]
-        if current_lockfile.exist?
-          definition.instance_variable_set(:@lockfile_contents, current_lockfile.read)
-          if install
-            current_definition = builder.to_definition(current_lockfile, { bundler: unlocking_bundler })
-            begin
-              current_definition.resolve_with_cache!
-              if current_definition.missing_specs.any?
-                Bundler.with_default_lockfile(current_lockfile) do
-                  Installer.install(gemfile.dirname, current_definition, {})
-                end
+        definition.instance_variable_set(:@lockfile_contents, current_lockfile.read) if current_lockfile.exist?
+
+        orig_definition = definition.dup # we might need it twice
+
+        if current_lockfile.exist? && install
+          Bundler.settings.temporary(frozen: true) do
+            current_definition = builder.to_definition(current_lockfile, {})
+            current_definition.resolve_with_cache!
+            if current_definition.missing_specs.any?
+              Bundler.with_default_lockfile(current_lockfile) do
+                Installer.install(gemfile.dirname, current_definition, {})
               end
-            rescue RubyVersionMismatch, GemNotFound, SolveFailure
-              # ignore
             end
+          rescue RubyVersionMismatch, GemNotFound, SolveFailure
+            # ignore
           end
         end
 
