@@ -274,8 +274,9 @@ module Bundler
               # once to reset them back to the default lockfile's version.
               # if it's already good, the `check` check at the beginning of
               # the loop will skip the second sync anyway.
-              if had_changes && attempts < 3
+              if had_changes && attempts < 2
                 attempts += 1
+                Bundler.ui.debug("Re-running sync to #{relative_lockfile} to reset common dependencies")
                 redo
               else
                 attempts = 1
