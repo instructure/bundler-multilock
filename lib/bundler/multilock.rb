@@ -431,6 +431,18 @@ module Bundler
           previous_ui_level = Bundler.ui.level
           Bundler.ui.level = "warn"
           begin
+            # this is a horrible hack, to fix what I consider to be a Bundler bug.
+            # basically, if you have multiple platform specific gems in your
+            # lockfile, and that gem gets unlocked, Bundler will only search
+            # locally to find them. But non-platform-local gems are _never_
+            # installed locally. So just find the non-platform-local gems
+            # in the lockfile (that we know are there from a prior remote
+            # resolution), and add them to the locally installed spec list.
+            definition.send(:source_map).locked_specs.each do |spec|
+              next if spec.match_platform(Bundler.local_platform)
+
+              spec.source.specs.add(spec)
+            end
             definition.resolve_with_cache!
           rescue GemNotFound, SolveFailure
             definition = orig_definition
