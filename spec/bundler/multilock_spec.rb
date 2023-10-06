@@ -130,6 +130,14 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "validates parent lockfile exists" do
+    with_gemfile(<<~RUBY) do
+      lockfile("full", parent: "missing")
+    RUBY
+      expect { invoke_bundler("install") }.to raise_error(/Parent lockfile .+missing\.lock is not defined/)
+    end
+  end
+
   it "generates custom lockfiles with varying versions" do
     with_gemfile(<<~RUBY) do
       lockfile do
@@ -292,6 +300,34 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "syncs from a parent lockfile" do
+    with_gemfile(<<~RUBY) do
+      lockfile do
+        gem "activesupport", "> 6.0", "< 7.1"
+      end
+
+      lockfile("6.1") do
+        gem "activesupport", "~> 6.1.0"
+      end
+
+      lockfile("6.1-alt", parent: "6.1") do
+        gem "activesupport", "> 6.0", "< 7.2"
+      end
+    RUBY
+      invoke_bundler("install")
+
+      default = invoke_bundler("info activesupport").split("\n").first
+      six_one = invoke_bundler("info activesupport", env: { "BUNDLE_LOCKFILE" => "6.1" }).split("\n").first
+      alt = invoke_bundler("info activesupport", env: { "BUNDLE_LOCKFILE" => "6.1-alt" }).split("\n").first
+
+      expect(default).to include("7.0")
+      expect(default).not_to eq six_one
+      expect(six_one).to include("6.1")
+      # alt is the same as 6.1, even though it should allow 7.1
+      expect(alt).to eq six_one
+    end
+  end
+
   it "whines about non-pinned dependencies in flagged gemfiles" do
     with_gemfile(<<~RUBY) do
       lockfile("full", enforce_pinned_additional_dependencies: true) do
@@ -333,7 +369,7 @@ describe "Bundler::Multilock" do
         expect do
           invoke_bundler("install")
         end.to raise_error(Regexp.new("activesupport \\(7.0.4.3\\) in Gemfile.full.lock " \
-                                      "does not match the default lockfile's version"))
+                                      "does not match the parent lockfile's version"))
       end
     end
 
@@ -348,7 +384,7 @@ describe "Bundler::Multilock" do
       RUBY
         expect do
           invoke_bundler("install")
-        end.to raise_error(/tzinfo \(2.0.5\) in Gemfile.full.lock does not match the default lockfile's version/)
+        end.to raise_error(/tzinfo \(2.0.5\) in Gemfile.full.lock does not match the parent lockfile's version/)
       end
     end
   end
@@ -386,7 +422,7 @@ describe "Bundler::Multilock" do
       expect do
         invoke_bundler("install")
       end.to raise_error(Regexp.new("hashie \\(4[0-9.]+\\) in local_test/Gemfile.lock " \
-                                    "does not match the default lockfile's version \\(@([0-9.]+)\\)"))
+                                    "does not match the parent lockfile's version \\(@([0-9.]+)\\)"))
     end
   end
 
