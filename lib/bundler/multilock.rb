@@ -329,7 +329,7 @@ module Bundler
         Bundler.ui.debug("Injecting multilock preamble")
 
         minor_version = Gem::Version.new(::Bundler::Multilock::VERSION).segments[0..1].join(".")
-        bundle_preamble1_match = %(plugin "bundler-multilock")
+        bundle_preamble1_match = /plugin ["']bundler-multilock["']/
         bundle_preamble1 = <<~RUBY
           plugin "bundler-multilock", "~> #{minor_version}"
         RUBY
@@ -384,8 +384,10 @@ module Bundler
 
       private
 
-      def inject_specific_preamble(gemfile, gemfiles, injection_point, preamble, add_newline:, match: preamble)
-        return false if gemfiles.any? { |g| g.include?(match) }
+      def inject_specific_preamble(gemfile, gemfiles, injection_point, preamble, add_newline:, match: nil)
+        # allow either type of quotes
+        match ||= Regexp.new(Regexp.escape(preamble).gsub('"', %(["'])))
+        return false if gemfiles.any? { |g| match.match?(g) }
 
         add_newline = false unless gemfile[injection_point - 1] == "\n"
 
