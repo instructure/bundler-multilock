@@ -460,7 +460,7 @@ module Bundler
             definition.send(:source_map).locked_specs.each do |spec|
               next if spec.match_platform(Bundler.local_platform)
 
-              spec.source.specs.add(spec)
+              spec.source.specs << spec
             end
             definition.resolve_with_cache!
           rescue GemNotFound, SolveFailure

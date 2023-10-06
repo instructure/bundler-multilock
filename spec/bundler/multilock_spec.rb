@@ -36,7 +36,7 @@ describe "Bundler::Multilock" do
 
         source "https://rubygems.org"
 
-        plugin "bundler-multilock", "~> 1.0"
+        plugin "bundler-multilock", "~> 1.1"
         return unless Plugin.installed?("bundler-multilock")
 
         Plugin.send(:load_plugin, "bundler-multilock")
@@ -52,7 +52,7 @@ describe "Bundler::Multilock" do
 
       source 'https://rubygems.org'
 
-      plugin 'bundler-multilock', '~> 1.0'
+      plugin 'bundler-multilock', '~> 1.1'
       return unless Plugin.installed?('bundler-multilock')
 
       Plugin.send(:load_plugin, 'bundler-multilock')
@@ -81,7 +81,7 @@ describe "Bundler::Multilock" do
       RUBY
 
       File.write("injected.rb", <<~RUBY)
-        plugin "bundler-multilock", "~> 1.0", path: #{File.expand_path("../..", __dir__).inspect}
+        plugin "bundler-multilock", "~> 1.1", path: #{File.expand_path("../..", __dir__).inspect}
         return unless Plugin.installed?("bundler-multilock")
 
         Plugin.send(:load_plugin, "bundler-multilock")
@@ -740,7 +740,7 @@ describe "Bundler::Multilock" do
     File.write("Gemfile", <<~RUBY)
       source "https://rubygems.org"
 
-      plugin "bundler-multilock", "~> 1.0", path: #{File.expand_path("../..", __dir__).inspect}
+      plugin "bundler-multilock", "~> 1.1", path: #{File.expand_path("../..", __dir__).inspect}
       return unless Plugin.installed?("bundler-multilock")
 
       Plugin.send(:load_plugin, "bundler-multilock")
