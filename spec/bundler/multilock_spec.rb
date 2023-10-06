@@ -620,6 +620,18 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "allows explicitly specifying the default lockfile" do
+    with_gemfile(<<~RUBY) do
+      gem "rake"
+
+      lockfile("alt1") do
+        gem "concurrent-ruby", "1.2.1"
+      end
+    RUBY
+      invoke_bundler("install", env: { "BUNDLE_LOCKFILE" => "Gemfile.lock" })
+    end
+  end
+
   # so that it won't downgrade if that's all you have available
   it "installs missing deps from alternate lockfiles before syncing" do
     Bundler.with_unbundled_env do
