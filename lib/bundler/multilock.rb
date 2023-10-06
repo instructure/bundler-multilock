@@ -62,14 +62,8 @@ module Bundler
           raise ArgumentError, "Lockfile #{lockfile} is already defined"
         end
 
-        env_lockfile = ENV["BUNDLE_LOCKFILE"]
-        if env_lockfile
-          unless env_lockfile.include?("/") || env_lockfile.end_with?(".lock")
-            env_lockfile = "Gemfile.#{env_lockfile}.lock"
-          end
-          env_lockfile = Bundler.root.join(env_lockfile).expand_path
-          active = env_lockfile == lockfile
-        end
+        env_lockfile = ENV["BUNDLE_LOCKFILE"]&.then { |l| expand_lockfile(l) }
+        active = env_lockfile == lockfile if env_lockfile
 
         if active && (old_active = lockfile_definitions.find { |definition| definition[:active] })
           raise ArgumentError, "Only one lockfile (#{old_active[:lockfile]}) can be flagged as the default"
@@ -310,16 +304,17 @@ module Bundler
 
         return unless lockfile_definitions.none? { |definition| definition[:active] }
 
-        # Gemfile.lock isn't explicitly specified, otherwise it would be active
-        default_lockfile_definition = lockfile_definitions.find do |definition|
-          definition[:lockfile] == Bundler.default_lockfile(force_original: true)
-        end
-        if ENV["BUNDLE_LOCKFILE"] == Bundler.default_lockfile(force_original: true) && default_lockfile_definition
+        if ENV["BUNDLE_LOCKFILE"]&.then { |l| expand_lockfile(l) } ==
+           Bundler.default_lockfile(force_original: true)
           return
         end
 
         raise GemfileNotFound, "Could not locate lockfile #{ENV["BUNDLE_LOCKFILE"].inspect}" if ENV["BUNDLE_LOCKFILE"]
 
+        # Gemfile.lock isn't explicitly specified, otherwise it would be active
+        default_lockfile_definition = lockfile_definitions.find do |definition|
+          definition[:lockfile] == Bundler.default_lockfile(force_original: true)
+        end
         return unless default_lockfile_definition && default_lockfile_definition[:active] == false
 
         raise GemfileEvalError, "No lockfiles marked as default"
