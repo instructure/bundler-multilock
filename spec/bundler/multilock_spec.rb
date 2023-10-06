@@ -46,6 +46,30 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "does not inject duplicate plugin load commands when you prefer single quotes" do
+    gemfile = <<~RUBY
+      # frozen_string_literal: true
+
+      source 'https://rubygems.org'
+
+      plugin 'bundler-multilock', '~> 1.0'
+      return unless Plugin.installed?('bundler-multilock')
+
+      Plugin.send(:load_plugin, 'bundler-multilock')
+
+      gem 'concurrent-ruby', '1.2.2'
+    RUBY
+
+    with_gemfile("") do
+      File.write("Gemfile", gemfile)
+
+      local_git = Shellwords.escape(File.expand_path("../..", __dir__))
+      invoke_bundler("plugin install bundler-multilock --local_git=#{local_git}")
+
+      expect(File.read("Gemfile")).to eq gemfile
+    end
+  end
+
   it "does not inject when a secondary Gemfile has the necessary commands" do
     with_gemfile("") do
       File.write("Gemfile", <<~RUBY)
