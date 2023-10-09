@@ -27,11 +27,6 @@ module Bundler
       #   BUNDLE_LOCKFILE will still override a lockfile tagged as active
       # @param parent [String] The parent lockfile to sync dependencies from.
       #   Also used for comparing enforce_pinned_additional_dependencies against.
-      # @param allow_mismatched_dependencies [true, false]
-      #   Allows version differences in dependencies between this lockfile and
-      #   the default lockfile. Note that even with this option, only top-level
-      #   dependencies that differ from the default lockfile, and their transitive
-      #   depedencies, are allowed to mismatch.
       # @param enforce_pinned_additional_dependencies [true, false]
       #   If dependencies are present in this lockfile that are not present in the
       #   default lockfile, enforce that they are pinned.
@@ -44,12 +39,15 @@ module Bundler
                        active: nil,
                        default: nil,
                        parent: nil,
-                       allow_mismatched_dependencies: true,
+                       allow_mismatched_dependencies: nil,
                        enforce_pinned_additional_dependencies: false,
                        &block)
         # backcompat
         active = default if active.nil?
         Bundler.ui.warn("lockfile(default:) is deprecated. Use lockfile(active:) instead.") if default
+        unless allow_mismatched_dependencies.nil?
+          Bundler.ui.warn("lockfile(allow_mismatched_dependencies:) is deprecated.")
+        end
 
         active = true if active.nil? && lockfile_definitions.empty? && lockfile.nil? && gemfile.nil?
 
@@ -81,7 +79,6 @@ module Bundler
           active: active,
           prepare: block,
           parent: parent,
-          allow_mismatched_dependencies: allow_mismatched_dependencies,
           enforce_pinned_additional_dependencies: enforce_pinned_additional_dependencies
         })
 
@@ -172,7 +169,7 @@ module Bundler
             Bundler.settings.temporary(frozen: true) do
               Bundler.ui.silence do
                 up_to_date = checker.base_check(lockfile_definition) &&
-                             checker.check(lockfile_definition, allow_mismatched_dependencies: false)
+                             checker.check(lockfile_definition)
               end
             end
             if up_to_date
