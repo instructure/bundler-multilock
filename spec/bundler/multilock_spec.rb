@@ -716,6 +716,26 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "removes now-missing explicit dependencies from secondary lockfiles" do
+    with_gemfile(<<~RUBY) do
+      gem "inst-jobs", "3.1.13"
+      gem "activerecord-pg-extensions"
+
+      lockfile("alt") {}
+    RUBY
+      invoke_bundler("install")
+
+      write_gemfile(<<~RUBY)
+        gem "inst-jobs", "3.1.13"
+
+        lockfile("alt") {}
+      RUBY
+
+      invoke_bundler("install")
+      expect(File.read("Gemfile.lock")).to eq File.read("Gemfile.alt.lock")
+    end
+  end
+
   private
 
   def create_local_gem(name, content = "", subdirectory: true)
