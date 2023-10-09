@@ -149,7 +149,6 @@ module Bundler
         require_relative "multilock/lockfile_generator"
 
         Bundler.ui.debug("Syncing to alternate lockfiles")
-        Bundler.ui.info ""
 
         attempts = 1
 
