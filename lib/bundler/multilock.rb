@@ -426,9 +426,16 @@ module Bundler
 
         orig_definition = definition.dup # we might need it twice
 
+        # install gems for the exact current version of the lockfile
+        # this ensures it doesn't re-resolve with only (different)
+        # local gems after you've pulled down an update to the lockfile
+        # from someone else
         if current_lockfile.exist? && install
           Bundler.settings.temporary(frozen: true) do
             current_definition = builder.to_definition(current_lockfile, {})
+            # if something has changed, we skip this step; it's unlocking anyway
+            next unless current_definition.no_resolve_needed?
+
             current_definition.resolve_with_cache!
             if current_definition.missing_specs.any?
               Bundler.with_default_lockfile(current_lockfile) do
