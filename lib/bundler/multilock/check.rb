@@ -58,7 +58,7 @@ module Bundler
 
       # this is mostly equivalent to the built in checks in `bundle check`, but even
       # more conservative, and returns false instead of exiting on failure
-      def base_check(lockfile_definition, log_missing: false, return_missing: false)
+      def base_check(lockfile_definition, log_missing: false, return_missing: false, check_missing_deps: false)
         return return_missing ? [] : false unless lockfile_definition[:lockfile].file?
 
         Multilock.prepare_block = lockfile_definition[:prepare]
@@ -83,7 +83,10 @@ module Bundler
 
         return not_installed if return_missing
 
-        not_installed.empty? && definition.no_resolve_needed?
+        return false unless not_installed.empty? && definition.no_resolve_needed?
+        return true unless check_missing_deps
+
+        (definition.locked_gems.dependencies.values - definition.dependencies).empty?
       ensure
         Multilock.prepare_block = nil
       end

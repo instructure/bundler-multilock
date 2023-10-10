@@ -167,7 +167,7 @@ module Bundler
             up_to_date = false
             Bundler.settings.temporary(frozen: true) do
               Bundler.ui.silence do
-                up_to_date = checker.base_check(lockfile_definition) &&
+                up_to_date = checker.base_check(lockfile_definition, check_missing_deps: true) &&
                              checker.check(lockfile_definition)
               end
             end
