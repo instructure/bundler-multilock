@@ -303,7 +303,7 @@ describe "Bundler::Multilock" do
   it "syncs from a parent lockfile" do
     with_gemfile(<<~RUBY) do
       lockfile do
-        gem "activesupport", "> 6.0", "< 7.1"
+        gem "activesupport", "~> 7.0.0"
       end
 
       lockfile("6.1") do
@@ -359,16 +359,16 @@ describe "Bundler::Multilock" do
     it "notifies about mismatched versions between different lockfiles" do
       with_gemfile(<<~RUBY) do
         lockfile do
-          gem "activesupport", "~> 6.1.0"
+          gem "activesupport", ">= 6.1", "< 7.2"
         end
 
-        lockfile("full", allow_mismatched_dependencies: false) do
-          gem "activesupport", "7.0.4.3"
+        lockfile("full") do
+          gem "activesupport", "6.1.7.6"
         end
       RUBY
         expect do
           invoke_bundler("install")
-        end.to raise_error(Regexp.new("activesupport \\(7.0.4.3\\) in Gemfile.full.lock " \
+        end.to raise_error(Regexp.new("activesupport \\(6.1.7.6\\) in Gemfile.full.lock " \
                                       "does not match the parent lockfile's version"))
       end
     end
@@ -377,7 +377,7 @@ describe "Bundler::Multilock" do
       with_gemfile(<<~RUBY) do
         gem "activesupport", "7.0.4.3" # depends on tzinfo ~> 2.0, so will get >= 2.0.6
 
-        lockfile("full", allow_mismatched_dependencies: false) do
+        lockfile("full") do
           gem "tzinfo", "2.0.5"
         end
 
@@ -410,7 +410,6 @@ describe "Bundler::Multilock" do
   it "disallows mismatched implicit dependencies" do
     with_gemfile(<<~RUBY) do
       lockfile("local_test/Gemfile.lock",
-               allow_mismatched_dependencies: false,
                gemfile: "local_test/Gemfile")
 
       gem "snaky_hash", "2.0.1"
@@ -635,12 +634,12 @@ describe "Bundler::Multilock" do
   # so that it won't downgrade if that's all you have available
   it "installs missing deps from alternate lockfiles before syncing" do
     Bundler.with_unbundled_env do
-      `gem uninstall activesupport -a --force 2> #{File::NULL}`
-      `gem install activesupport -v 6.1.7.6`
+      `gem uninstall activemodel -a --force 2> #{File::NULL}`
+      `gem install activemodel -v 6.1.7.6`
     end
 
     with_gemfile(<<~RUBY) do
-      lockfile() do
+      lockfile do
         gem "activemodel", ">= 6.0"
       end
 
@@ -648,19 +647,19 @@ describe "Bundler::Multilock" do
         gem "activemodel", "~> 6.1.0"
       end
     RUBY
-      invoke_bundler("install")
+      invoke_bundler("install --local")
       expect(invoke_bundler("info activesupport", env: { "BUNDLE_LOCKFILE" => "rails-6.1" })).to include("6.1.7.6")
 
       Bundler.with_unbundled_env do
-        `gem uninstall activesupport -v 6.1.7.6 --force 2> #{File::NULL}`
-        `gem install activesupport -v 6.1.6`
+        `gem uninstall activemodel -v 6.1.7.6 --force 2> #{File::NULL}`
+        `gem install activemodel -v 6.1.6`
       end
 
       expect { invoke_bundler("check") }.to raise_error(/The following gems are missing/)
       invoke_bundler("install")
 
       # it should have re-installed 6.1.7.6, leaving the lockfile alone
-      expect(invoke_bundler("info activesupport", env: { "BUNDLE_LOCKFILE" => "rails-6.1" })).to include("6.1.7.6")
+      expect(invoke_bundler("info activemodel", env: { "BUNDLE_LOCKFILE" => "rails-6.1" })).to include("6.1.7.6")
     end
   end
 
@@ -696,6 +695,24 @@ describe "Bundler::Multilock" do
       output = invoke_bundler("install", env: { "DEBUG" => "1" })
 
       expect(output.split("\n").grep(/Syncing to alternate lockfiles/).length).to be 1
+    end
+  end
+
+  it "does not re-sync lockfiles that have conflicting sub-dependencies" do
+    with_gemfile(<<~RUBY) do
+      lockfile do
+        gem "activemodel", "~> 7.1.0"
+      end
+
+      lockfile("rails-7.0") do
+        gem "activemodel", "~> 7.0.0"
+      end
+    RUBY
+      output = invoke_bundler("install")
+      expect(output).to include("Syncing")
+
+      output = invoke_bundler("install")
+      expect(output).not_to include("Syncing")
     end
   end
 
