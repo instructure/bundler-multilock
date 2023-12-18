@@ -1,8 +1,8 @@
 PATH
   remote: .
   specs:
-    bundler-multilock (1.2.0)
-      bundler (~> 2.4.19)
+    bundler-multilock (1.2.1)
+      bundler (>= 2.4.19, < 2.6)
 
 GEM
   remote: https://rubygems.org/
@@ -98,4 +98,4 @@ DEPENDENCIES
   rubocop-rspec (~> 2.24)
 
 BUNDLED WITH
-   2.4.20
+   2.5.1
