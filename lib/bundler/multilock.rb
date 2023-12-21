@@ -65,7 +65,7 @@ module Bundler
         active = env_lockfile == lockfile if env_lockfile
 
         if active && (old_active = lockfile_definitions.find { |definition| definition[:active] })
-          raise ArgumentError, "Only one lockfile (#{old_active[:lockfile]}) can be flagged as the default"
+          raise ArgumentError, "Only one lockfile (#{old_active[:lockfile]}) can be flagged as active"
         end
 
         parent = expand_lockfile(parent)
@@ -314,7 +314,7 @@ module Bundler
         end
         return unless default_lockfile_definition && default_lockfile_definition[:active] == false
 
-        raise GemfileEvalError, "No lockfiles marked as default"
+        raise GemfileEvalError, "No lockfiles marked as active"
       end
 
       # @!visibility private
