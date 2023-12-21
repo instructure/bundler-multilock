@@ -736,6 +736,25 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "does not evaluate the default lockfile at all if an alternate is active, " \
+     "without specifying that lockfile explicitly" do
+    with_gemfile(<<~RUBY) do
+      gem "inst-jobs", "3.1.13"
+
+      lockfile active: ENV["ALTERNATE"] != "1" do
+        raise "evaluated!" if ENV["ALTERNATE"] == "1"
+      end
+
+      lockfile "alt", active: ENV["ALTERNATE"] == "1" do
+        gem "activerecord-pg-extensions"
+      end
+    RUBY
+      invoke_bundler("install")
+
+      invoke_bundler("install", env: { "ALTERNATE" => "1", "BUNDLE_LOCKFILE" => "active" })
+    end
+  end
+
   private
 
   def create_local_gem(name, content = "", subdirectory: true)

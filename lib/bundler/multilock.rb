@@ -60,7 +60,8 @@ module Bundler
           raise ArgumentError, "Lockfile #{lockfile} is already defined"
         end
 
-        env_lockfile = ENV["BUNDLE_LOCKFILE"]&.then { |l| expand_lockfile(l) }
+        env_lockfile = lockfile if active && ENV["BUNDLE_LOCKFILE"] == "active"
+        env_lockfile ||= ENV["BUNDLE_LOCKFILE"]&.then { |l| expand_lockfile(l) }
         active = env_lockfile == lockfile if env_lockfile
 
         if active && (old_active = lockfile_definitions.find { |definition| definition[:active] })

@@ -88,6 +88,33 @@ BUNDLE_LOCKFILE=rails-7.0 bundle exec rspec
 You can also dynamically select it in your Gemfile, and pass `current: true`
 to (exactly one!) `lockfile` method.
 
+In some cases, you may want to essentially disable bundler-multilock's
+syncing behavior, while still allowing the Gemfile to select the active
+lockfile. For example, if you have gems in the default lockfile that cannot
+be installed under a certain Ruby version, but still want to be able to CI
+against that Ruby version, you may set it up like this:
+
+```ruby
+lockfile active: RUBY_VERSION >= "2.7" do
+  gem "debug", "~> 1.9"
+end
+
+lockfile "ruby-2.6", active: RUBY_VERSION < "2.7" do
+  gem "debug", "~> 1.8.0"
+end
+```
+
+However, you cannot run a regular `bundle install` while running Ruby 2.6 in
+this situation, since simply evaluating the default lockfile's block, even
+for checking that the lockfiles are valid, will raise an exception that debug
+1.9.0 require Ruby 2.7. You could set `BUNDLE_LOCKFILE=ruby-2.6` to have
+bundler-multilock only consider the one lockfile, but then your CI may need
+additional logic to _not_ set it for other Ruby versions. Instead, you can
+set `BUNDLE_LOCKFILE=active`, which will not override the Gemfile's selection
+of which lockfile is active, but still behave as if `BUNDLE_LOCKFILE` is set,
+bypassing any other syncing logic and not evaluating the default lockfile in
+our example.
+
 ## Comparison to Appraisal
 
 [Appraisal](https://github.com/thoughtbot/appraisal) is a gem that might serve
