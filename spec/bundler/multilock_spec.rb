@@ -723,7 +723,6 @@ describe "Bundler::Multilock" do
 
       lockfile("alt") {}
     RUBY
-      invoke_bundler("config set --local force_ruby_platform true") # workaround for https://github.com/rubygems/rubygems/issues/7304
       invoke_bundler("install")
 
       write_gemfile(<<~RUBY)
