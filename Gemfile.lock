@@ -9,12 +9,12 @@ GEM
   specs:
     ast (2.4.2)
     base64 (0.1.1)
-    debug (1.8.0)
-      irb (>= 1.5.0)
-      reline (>= 0.3.1)
+    debug (1.9.0)
+      irb (~> 1.10)
+      reline (>= 0.3.8)
     diff-lcs (1.5.0)
-    io-console (0.6.0)
-    irb (1.8.1)
+    io-console (0.7.1)
+    irb (1.11.0)
       rdoc
       reline (>= 0.3.8)
     json (2.6.3)
@@ -23,15 +23,15 @@ GEM
     parser (3.2.2.3)
       ast (~> 2.4.1)
       racc
-    psych (5.1.0)
+    psych (5.1.2)
       stringio
     racc (1.7.1)
     rainbow (3.1.1)
     rake (13.0.6)
-    rdoc (6.5.0)
+    rdoc (6.6.2)
       psych (>= 4.0.0)
     regexp_parser (2.8.1)
-    reline (0.3.8)
+    reline (0.4.1)
       io-console (~> 0.5)
     rexml (3.2.6)
     rspec (3.12.0)
@@ -78,7 +78,7 @@ GEM
       rubocop-capybara (~> 2.17)
       rubocop-factory_bot (~> 2.22)
     ruby-progressbar (1.13.0)
-    stringio (3.0.8)
+    stringio (3.1.0)
     unicode-display_width (2.4.2)
 
 PLATFORMS
@@ -90,12 +90,14 @@ PLATFORMS
 
 DEPENDENCIES
   bundler-multilock!
-  debug (~> 1.8)
+  debug (~> 1.9)
+  irb (~> 1.11)
   rake (~> 13.0)
   rspec (~> 3.12)
   rubocop-inst (~> 1.0)
   rubocop-rake (~> 0.6)
   rubocop-rspec (~> 2.24)
+  stringio (~> 3.1)
 
 BUNDLED WITH
    2.5.2

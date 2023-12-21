@@ -7,7 +7,10 @@ require:
   - rubocop-rake
 
 AllCops:
-  TargetRubyVersion: 2.7
+  TargetRubyVersion: 2.6
+
+Bundler/DuplicatedGem:
+  Enabled: false
 
 Naming/FileName:
   Exclude:

@@ -303,28 +303,28 @@ describe "Bundler::Multilock" do
   it "syncs from a parent lockfile" do
     with_gemfile(<<~RUBY) do
       lockfile do
-        gem "activesupport", "~> 7.0.0"
-      end
-
-      lockfile("6.1") do
         gem "activesupport", "~> 6.1.0"
       end
 
-      lockfile("6.1-alt", parent: "6.1") do
-        gem "activesupport", "> 6.0", "< 7.2"
+      lockfile("6.0") do
+        gem "activesupport", "~> 6.0.0"
+      end
+
+      lockfile("6.0-alt", parent: "6.0") do
+        gem "activesupport", "> 5.2", "< 7.2"
       end
     RUBY
       invoke_bundler("install")
 
-      default = invoke_bundler("info activesupport").split("\n").first
-      six_one = invoke_bundler("info activesupport", env: { "BUNDLE_LOCKFILE" => "6.1" }).split("\n").first
-      alt = invoke_bundler("info activesupport", env: { "BUNDLE_LOCKFILE" => "6.1-alt" }).split("\n").first
+      default = invoke_bundler("info activesupport")
+      six_oh = invoke_bundler("info activesupport 2> /dev/null", env: { "BUNDLE_LOCKFILE" => "6.0" })
+      alt = invoke_bundler("info activesupport 2> /dev/null", env: { "BUNDLE_LOCKFILE" => "6.0-alt" })
 
-      expect(default).to include("7.0")
-      expect(default).not_to eq six_one
-      expect(six_one).to include("6.1")
-      # alt is the same as 6.1, even though it should allow 7.1
-      expect(alt).to eq six_one
+      expect(default).to include("6.1")
+      expect(default).not_to eq six_oh
+      expect(six_oh).to include("6.0")
+      # alt is the same as 6.0, even though it should allow 6.1
+      expect(alt).to eq six_oh
     end
   end
 
@@ -359,23 +359,23 @@ describe "Bundler::Multilock" do
     it "notifies about mismatched versions between different lockfiles" do
       with_gemfile(<<~RUBY) do
         lockfile do
-          gem "activesupport", ">= 6.1", "< 7.2"
+          gem "activesupport", ">= 6.0", "< 7.0"
         end
 
         lockfile("full") do
-          gem "activesupport", "6.1.7.6"
+          gem "activesupport", "6.0.6.1"
         end
       RUBY
         expect do
           invoke_bundler("install")
-        end.to raise_error(Regexp.new("activesupport \\(6.1.7.6\\) in Gemfile.full.lock " \
+        end.to raise_error(Regexp.new("activesupport \\(6.0.6.1\\) in Gemfile.full.lock " \
                                       "does not match the parent lockfile's version"))
       end
     end
 
     it "notifies about mismatched versions between different lockfiles for sub-dependencies" do
       with_gemfile(<<~RUBY) do
-        gem "activesupport", "7.0.4.3" # depends on tzinfo ~> 2.0, so will get >= 2.0.6
+        gem "activesupport", "6.1.7.6" # depends on tzinfo ~> 2.0, so will get >= 2.0.6
 
         lockfile("full") do
           gem "tzinfo", "2.0.5"
@@ -392,18 +392,18 @@ describe "Bundler::Multilock" do
   it "allows mismatched explicit dependencies by default" do
     with_gemfile(<<~RUBY) do
       lockfile do
-        gem "activesupport", "~> 6.1.0"
+        gem "activesupport", "~> 6.0.0"
       end
 
       lockfile("new") do
-        gem "activesupport", "7.0.4.3"
+        gem "activesupport", "6.1.7.6"
       end
     RUBY
       invoke_bundler("install") # no error
-      expect(File.read("Gemfile.lock")).to include("6.1.")
-      expect(File.read("Gemfile.lock")).not_to include("7.0.4.3")
-      expect(File.read("Gemfile.new.lock")).not_to include("6.1.")
-      expect(File.read("Gemfile.new.lock")).to include("7.0.4.3")
+      expect(File.read("Gemfile.lock")).to include("6.0.")
+      expect(File.read("Gemfile.lock")).not_to include("6.1.7.6")
+      expect(File.read("Gemfile.new.lock")).not_to include("6.0.")
+      expect(File.read("Gemfile.new.lock")).to include("6.1.7.6")
     end
   end
 
@@ -686,8 +686,8 @@ describe "Bundler::Multilock" do
     with_gemfile(<<~RUBY) do
       gemspec
 
-      lockfile("rails-7.0", default: true) do
-        gem "activesupport", "~> 7.0.0"
+      lockfile("rails-6.1", default: true) do
+        gem "activesupport", "~> 6.1.0"
       end
     RUBY
       create_local_gem("test", subdirectory: false)
@@ -701,11 +701,11 @@ describe "Bundler::Multilock" do
   it "does not re-sync lockfiles that have conflicting sub-dependencies" do
     with_gemfile(<<~RUBY) do
       lockfile do
-        gem "activemodel", "~> 7.1.0"
+        gem "activemodel", "~> 6.1.0"
       end
 
-      lockfile("rails-7.0") do
-        gem "activemodel", "~> 7.0.0"
+      lockfile("rails-6.0") do
+        gem "activemodel", "~> 6.0.0"
       end
     RUBY
       output = invoke_bundler("install")
@@ -718,7 +718,7 @@ describe "Bundler::Multilock" do
 
   it "removes now-missing explicit dependencies from secondary lockfiles" do
     with_gemfile(<<~RUBY) do
-      gem "inst-jobs", "3.1.13"
+      gem "inst-jobs", "3.1.6"
       gem "activerecord-pg-extensions"
 
       lockfile("alt") {}
@@ -726,7 +726,7 @@ describe "Bundler::Multilock" do
       invoke_bundler("install")
 
       write_gemfile(<<~RUBY)
-        gem "inst-jobs", "3.1.13"
+        gem "inst-jobs", "3.1.6"
 
         lockfile("alt") {}
       RUBY
@@ -739,7 +739,7 @@ describe "Bundler::Multilock" do
   it "does not evaluate the default lockfile at all if an alternate is active, " \
      "without specifying that lockfile explicitly" do
     with_gemfile(<<~RUBY) do
-      gem "inst-jobs", "3.1.13"
+      gem "inst-jobs", "3.1.6"
 
       lockfile active: ENV["ALTERNATE"] != "1" do
         raise "evaluated!" if ENV["ALTERNATE"] == "1"
