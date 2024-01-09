@@ -103,30 +103,30 @@ describe "Bundler::Multilock" do
     end
   end
 
-  it "disallows multiple default lockfiles" do
+  it "disallows multiple active lockfiles" do
     with_gemfile(<<~RUBY) do
-      lockfile(default: true)
-      lockfile("full", default: true)
+      lockfile(active: true)
+      lockfile("full", active: true)
     RUBY
-      expect { invoke_bundler("install") }.to raise_error(/can be flagged as the default/)
+      expect { invoke_bundler("install") }.to raise_error(/can be flagged as active/)
     end
   end
 
   it "allows defaulting to an alternate lockfile" do
     with_gemfile(<<~RUBY) do
-      lockfile(default: false)
-      lockfile("full", default: true)
+      lockfile(active: false)
+      lockfile("full", active: true)
     RUBY
       invoke_bundler("install")
     end
   end
 
-  it "disallows no lockfile set as the default" do
+  it "disallows no lockfile set as active" do
     with_gemfile(<<~RUBY) do
-      lockfile(default: false)
+      lockfile(active: false)
       lockfile("full")
     RUBY
-      expect { invoke_bundler("install") }.to raise_error(/No lockfiles marked as default/)
+      expect { invoke_bundler("install") }.to raise_error(/No lockfiles marked as active/)
     end
   end
 
@@ -192,11 +192,11 @@ describe "Bundler::Multilock" do
     end
   end
 
-  it "bundle info, bundle list respect default" do
+  it "bundle info, bundle list respect active" do
     with_gemfile(<<~RUBY) do
       gem "rake", "13.0.6"
 
-      lockfile "variation1", default: true do
+      lockfile "variation1", active: true do
         gem "concurrent-ruby", "1.1.10"
       end
       lockfile "variation2" do
@@ -252,7 +252,7 @@ describe "Bundler::Multilock" do
 
   it "preserves the locked version of a gem in an alternate lockfile when updating a different gem in common" do
     with_gemfile(<<~RUBY) do
-      lockfile("full", default: true) do
+      lockfile("full", active: true) do
         gem "net-smtp", "0.3.2"
       end
 
@@ -265,7 +265,7 @@ describe "Bundler::Multilock" do
 
       # loosen the requirement on both gems
       write_gemfile(<<~RUBY)
-        lockfile("full", default: true) do
+        lockfile("full", active: true) do
           gem "net-smtp", "~> 0.3"
         end
 
@@ -465,14 +465,14 @@ describe "Bundler::Multilock" do
     with_gemfile(<<~RUBY) do
       gem "rake"
 
-      lockfile("full", default: true) do
+      lockfile("full", active: true) do
         gem "concurrent-ruby", "1.2.1"
       end
     RUBY
       invoke_bundler("install")
 
       write_gemfile(<<~RUBY)
-        lockfile("full", default: true) do
+        lockfile("full", active: true) do
           gem "concurrent-ruby", "~> 1.2.0"
         end
       RUBY
@@ -486,7 +486,7 @@ describe "Bundler::Multilock" do
     with_gemfile(<<~RUBY) do
       gem "concurrent-ruby", "1.2.1"
 
-      lockfile("full", default: true) do
+      lockfile("full", active: true) do
       end
     RUBY
       invoke_bundler("install")
@@ -494,7 +494,7 @@ describe "Bundler::Multilock" do
       write_gemfile(<<~RUBY)
         gem "concurrent-ruby", "~> 1.2.0"
 
-        lockfile("full", default: true) do
+        lockfile("full", active: true) do
         end
       RUBY
 
@@ -508,7 +508,7 @@ describe "Bundler::Multilock" do
     with_gemfile(<<~RUBY) do
       gem "concurrent-ruby", "1.2.1"
 
-      lockfile("full", default: true) do
+      lockfile("full", active: true) do
       end
     RUBY
       invoke_bundler("install")
@@ -516,7 +516,7 @@ describe "Bundler::Multilock" do
       write_gemfile(<<~RUBY)
         gem "concurrent-ruby", "~> 1.2.0"
 
-        lockfile("full", default: true) do
+        lockfile("full", active: true) do
         end
       RUBY
 
@@ -619,7 +619,7 @@ describe "Bundler::Multilock" do
     end
   end
 
-  it "allows explicitly specifying the default lockfile" do
+  it "allows explicitly specifying the active lockfile" do
     with_gemfile(<<~RUBY) do
       gem "rake"
 
@@ -686,7 +686,7 @@ describe "Bundler::Multilock" do
     with_gemfile(<<~RUBY) do
       gemspec
 
-      lockfile("rails-6.1", default: true) do
+      lockfile("rails-6.1", active: true) do
         gem "activesupport", "~> 6.1.0"
       end
     RUBY

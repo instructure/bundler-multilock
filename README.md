@@ -11,7 +11,7 @@ the default lockfile (Gemfile.lock), afterwhich all other lockfiles will
 be re-created based on this default lockfile. Additional lockfiles can be
 based on the same Gemfile, but vary at runtime. You can force a specific
 lockfile by setting the `BUNDLE_LOCKFILE` environment variable, or customize
-it any way you want by setting `current: true` on one of your lockfiles
+it any way you want by setting `active: true` on one of your lockfiles
 in your Gemfile.
 
 Alternately (or in addition!), you can define a lockfile to use a completely
@@ -85,7 +85,7 @@ with `BUNDLE_LOCKFILE`:
 BUNDLE_LOCKFILE=rails-7.0 bundle exec rspec
 ```
 
-You can also dynamically select it in your Gemfile, and pass `current: true`
+You can also dynamically select it in your Gemfile, and pass `active: true`
 to (exactly one!) `lockfile` method.
 
 In some cases, you may want to essentially disable bundler-multilock's
