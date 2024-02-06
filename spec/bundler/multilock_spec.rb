@@ -635,7 +635,7 @@ describe "Bundler::Multilock" do
   it "installs missing deps from alternate lockfiles before syncing" do
     Bundler.with_unbundled_env do
       `gem uninstall activemodel -a --force 2> #{File::NULL}`
-      `gem install activemodel -v 6.1.7.6`
+      `gem install activemodel -s https://rubygems.org -v 6.1.7.6`
     end
 
     with_gemfile(<<~RUBY) do
@@ -652,7 +652,7 @@ describe "Bundler::Multilock" do
 
       Bundler.with_unbundled_env do
         `gem uninstall activemodel -v 6.1.7.6 --force 2> #{File::NULL}`
-        `gem install activemodel -v 6.1.6`
+        `gem install activemodel -s https://rubygems.org -v 6.1.6`
       end
 
       expect { invoke_bundler("check") }.to raise_error(/The following gems are missing/)
