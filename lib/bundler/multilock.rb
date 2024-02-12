@@ -70,7 +70,8 @@ module Bundler
 
         parent = expand_lockfile(parent)
         if parent != Bundler.default_lockfile(force_original: true) &&
-           !lockfile_definitions.find { |definition| definition[:lockfile] == parent }
+           !lockfile_definitions.find { |definition| definition[:lockfile] == parent } &&
+           !parent.exist?
           raise ArgumentError, "Parent lockfile #{parent} is not defined"
         end
 
