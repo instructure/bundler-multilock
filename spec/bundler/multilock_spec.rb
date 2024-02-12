@@ -138,6 +138,14 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "allows externally defined parents if they exist" do
+    with_gemfile(<<~RUBY) do
+      lockfile("full", parent: Bundler.default_lockfile)
+    RUBY
+      invoke_bundler("install")
+    end
+  end
+
   it "generates custom lockfiles with varying versions" do
     with_gemfile(<<~RUBY) do
       lockfile do
