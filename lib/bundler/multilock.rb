@@ -469,7 +469,12 @@ module Bundler
             resolved_remotely = true
           end
           SharedHelpers.capture_filesystem_access do
-            definition.lock(lockfile_definition[:lockfile], true)
+            if Bundler.gem_version >= Gem::Version.new("2.5.6")
+              definition.instance_variable_set(:@lockfile, lockfile_definition[:lockfile])
+              definition.lock(true)
+            else
+              definition.lock(lockfile_definition[:lockfile], true)
+            end
           end
         ensure
           Bundler.ui.level = previous_ui_level
@@ -494,6 +499,8 @@ module Bundler
   end
 end
 
+# see https://github.com/rubygems/rubygems/pull/7368
+Bundler::LazySpecification.include(Bundler::MatchMetadata) if defined?(Bundler::MatchMetadata)
 Bundler::Multilock.inject_preamble unless Bundler::Multilock.loaded?
 
 # this is terrible, but we can't prepend into these modules because we only load
