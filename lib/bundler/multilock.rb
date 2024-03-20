@@ -159,13 +159,14 @@ module Bundler
         local_parser_cache = {}
         Bundler.settings.temporary(cache_all_platforms: true, suppress_install_using_messages: true) do
           lockfile_definitions.each do |lockfile_definition|
+            lockfile_name = lockfile_definition[:lockfile]
             # we already wrote the default lockfile
-            next if lockfile_definition[:lockfile] == Bundler.default_lockfile(force_original: true)
+            next if lockfile_name == Bundler.default_lockfile(force_original: true)
 
             # root needs to be set so that paths are output relative to the correct root in the lockfile
             Bundler.root = lockfile_definition[:gemfile].dirname
 
-            relative_lockfile = lockfile_definition[:lockfile].relative_path_from(Dir.pwd)
+            relative_lockfile = lockfile_name.relative_path_from(Dir.pwd)
 
             # already up to date?
             up_to_date = false
@@ -182,7 +183,7 @@ module Bundler
 
             if Bundler.frozen_bundle?
               # if we're frozen, you have to use the pre-existing lockfile
-              unless lockfile_definition[:lockfile].exist?
+              unless lockfile_name.exist?
                 Bundler.ui.error("The bundle is locked, but #{relative_lockfile} is missing. " \
                                  "Please make sure you have checked #{relative_lockfile} " \
                                  "into version control before deploying.")
@@ -190,18 +191,19 @@ module Bundler
               end
 
               Bundler.ui.info("Installing gems for #{relative_lockfile}...")
-              write_lockfile(lockfile_definition, lockfile_definition[:lockfile], cache, install: install)
+              write_lockfile(lockfile_definition, lockfile_name, cache, install: install)
             else
               Bundler.ui.info("Syncing to #{relative_lockfile}...") if attempts == 1
               synced_any = true
 
-              parent = lockfile_definition[:parent]
-              parent_root = parent.dirname
-              parent_specs = cache.specs(parent)
+              specs = lockfile_name.exist? ? cache.specs(lockfile_name) : {}
+              parent_lockfile_name = lockfile_definition[:parent]
+              parent_root = parent_lockfile_name.dirname
+              parent_specs = cache.specs(parent_lockfile_name)
 
               # adjust locked paths from the parent lockfile to be relative to _this_ gemfile
               adjusted_parent_lockfile_contents =
-                cache.contents(parent).gsub(/PATH\n  remote: ([^\n]+)\n/) do |remote|
+                cache.contents(parent_lockfile_name).gsub(/PATH\n  remote: ([^\n]+)\n/) do |remote|
                   remote_path = Pathname.new($1)
                   next remote if remote_path.absolute?
 
@@ -221,15 +223,15 @@ module Bundler
                 TEXT
               end
 
-              if lockfile_definition[:lockfile].exist?
+              if lockfile_name.exist?
                 # if the lockfile already exists, "merge" it together
-                parent_lockfile = if adjusted_parent_lockfile_contents == cache.contents(lockfile_definition[:lockfile])
-                                    cache.parser(parent)
+                parent_lockfile = if adjusted_parent_lockfile_contents == cache.contents(lockfile_name)
+                                    cache.parser(parent_lockfile_name)
                                   else
                                     local_parser_cache[adjusted_parent_lockfile_contents] ||=
                                       LockfileParser.new(adjusted_parent_lockfile_contents)
                                   end
-                lockfile = cache.parser(lockfile_definition[:lockfile])
+                lockfile = cache.parser(lockfile_name)
 
                 dependency_changes = false
                 # replace any duplicate specs with what's in the default lockfile
@@ -237,11 +239,17 @@ module Bundler
                   parent_spec = parent_specs[[spec.name, spec.platform]]
                   next spec unless parent_spec
 
+                  # they're conflicting on purpose; don't inherit from the parent lockfile
+                  next spec if cache.conflicting_requirements?(lockfile_name, parent_lockfile_name, spec, parent_spec)
+
                   dependency_changes ||= spec != parent_spec
                   parent_spec
                 end
 
-                lockfile.specs.replace(parent_lockfile.specs + lockfile.specs).uniq!
+                missing_specs = parent_specs.each_value.reject do |parent_spec|
+                  specs.include?([parent_spec.name, parent_spec.platform])
+                end
+                lockfile.specs.replace(missing_specs + lockfile.specs) unless missing_specs.empty?
                 lockfile.sources.replace(parent_lockfile.sources + lockfile.sources).uniq!
                 lockfile.platforms.replace(parent_lockfile.platforms).uniq!
                 # prune more specific platforms
@@ -276,7 +284,7 @@ module Bundler
                                                dependency_changes: dependency_changes,
                                                unlocking_bundler: unlocking_bundler)
               end
-              cache.invalidate_lockfile(lockfile_definition[:lockfile]) if had_changes
+              cache.invalidate_lockfile(lockfile_name) if had_changes
 
               # if we had changes, bundler may have updated some common
               # dependencies beyond the default lockfile, so re-run it

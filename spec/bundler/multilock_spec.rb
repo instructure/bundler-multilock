@@ -768,6 +768,52 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "doesn't update versions in alternate lockfiles when syncing" do
+    # first
+    with_gemfile(<<~RUBY) do
+      gem "rubocop", "1.45.0"
+
+      lockfile do
+        gem "activesupport", "6.0.0"
+      end
+
+      lockfile "rails-6.1" do
+        gem "activesupport", "6.1.0"
+      end
+    RUBY
+      invoke_bundler("install")
+
+      write_gemfile(<<~RUBY)
+        gem "rubocop", "~> 1.45.0"
+
+        lockfile do
+          gem "activesupport", "~> 6.0.0"
+        end
+
+        lockfile "rails-6.1" do
+          gem "activesupport", "~> 6.1.0"
+        end
+      RUBY
+
+      # first, unpin, but ensure no gems update during this process
+      invoke_bundler("install")
+
+      expect(invoke_bundler("info rubocop")).to include("1.45.0")
+      expect(invoke_bundler("info activesupport")).to include("6.0.0")
+      expect(invoke_bundler("info rubocop", env: { "BUNDLE_LOCKFILE" => "rails-6.1" })).to include("1.45.0")
+      expect(invoke_bundler("info activesupport", env: { "BUNDLE_LOCKFILE" => "rails-6.1" })).to include("6.1.0")
+
+      # now, update an unrelated gem, but _only_ that gem
+      # this should not update other gems in the alternate lockfiles
+      invoke_bundler("update rubocop --conservative")
+
+      expect(invoke_bundler("info rubocop")).to include("1.45.1")
+      expect(invoke_bundler("info activesupport")).to include("6.0.0")
+      expect(invoke_bundler("info rubocop", env: { "BUNDLE_LOCKFILE" => "rails-6.1" })).to include("1.45.1")
+      expect(invoke_bundler("info activesupport", env: { "BUNDLE_LOCKFILE" => "rails-6.1" })).to include("6.1.0")
+    end
+  end
+
   private
 
   def create_local_gem(name, content = "", subdirectory: true)

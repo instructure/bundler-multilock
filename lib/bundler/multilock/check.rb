@@ -106,9 +106,6 @@ module Bundler
             success = false
           end
 
-          reverse_dependencies = @cache.reverse_dependencies(lockfile_name)
-          parent_reverse_dependencies = @cache.reverse_dependencies(parent_lockfile_name)
-
           # look through top-level explicit dependencies for pinned requirements
           if lockfile_definition[:enforce_pinned_additional_dependencies]
             find_pinned_dependencies(proven_pinned, parser.dependencies.each_value)
@@ -142,8 +139,7 @@ module Bundler
 
             # the version in the parent lockfile cannot possibly satisfy the requirements
             # in this lockfile, and vice versa, so we assume it's intentional and allow it
-            unless reverse_dependencies[spec.name].satisfied_by?(parent_spec.version) ||
-                   parent_reverse_dependencies[spec.name].satisfied_by?(spec.version)
+            if @cache.conflicting_requirements?(lockfile_name, parent_lockfile_name, spec, parent_spec)
               # we're allowing it to differ from the parent, so pin check requirement comes into play
               needs_pin_check << spec if lockfile_definition[:enforce_pinned_additional_dependencies]
               next
