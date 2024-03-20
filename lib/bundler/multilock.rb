@@ -153,8 +153,10 @@ module Bundler
 
         default_root = Bundler.root
 
-        checker = Check.new
+        cache = Cache.new
+        checker = Check.new(cache)
         synced_any = false
+        local_parser_cache = {}
         Bundler.settings.temporary(cache_all_platforms: true, suppress_install_using_messages: true) do
           lockfile_definitions.each do |lockfile_definition|
             # we already wrote the default lockfile
@@ -170,7 +172,7 @@ module Bundler
             Bundler.settings.temporary(frozen: true) do
               Bundler.ui.silence do
                 up_to_date = checker.base_check(lockfile_definition, check_missing_deps: true) &&
-                             checker.check(lockfile_definition)
+                             checker.deep_check(lockfile_definition)
               end
             end
             if up_to_date
@@ -188,19 +190,18 @@ module Bundler
               end
 
               Bundler.ui.info("Installing gems for #{relative_lockfile}...")
-              write_lockfile(lockfile_definition, lockfile_definition[:lockfile], install: install)
+              write_lockfile(lockfile_definition, lockfile_definition[:lockfile], cache, install: install)
             else
               Bundler.ui.info("Syncing to #{relative_lockfile}...") if attempts == 1
               synced_any = true
 
               parent = lockfile_definition[:parent]
               parent_root = parent.dirname
-              checker.load_lockfile(parent)
-              parent_specs = checker.lockfile_specs[parent]
+              parent_specs = cache.specs(parent)
 
               # adjust locked paths from the parent lockfile to be relative to _this_ gemfile
               adjusted_parent_lockfile_contents =
-                checker.lockfile_contents[parent].gsub(/PATH\n  remote: ([^\n]+)\n/) do |remote|
+                cache.contents(parent).gsub(/PATH\n  remote: ([^\n]+)\n/) do |remote|
                   remote_path = Pathname.new($1)
                   next remote if remote_path.absolute?
 
@@ -222,8 +223,13 @@ module Bundler
 
               if lockfile_definition[:lockfile].exist?
                 # if the lockfile already exists, "merge" it together
-                parent_lockfile = LockfileParser.new(adjusted_parent_lockfile_contents)
-                lockfile = LockfileParser.new(lockfile_definition[:lockfile].read)
+                parent_lockfile = if adjusted_parent_lockfile_contents == cache.contents(lockfile_definition[:lockfile])
+                                    cache.parser(parent)
+                                  else
+                                    local_parser_cache[adjusted_parent_lockfile_contents] ||=
+                                      LockfileParser.new(adjusted_parent_lockfile_contents)
+                                  end
+                lockfile = cache.parser(lockfile_definition[:lockfile])
 
                 dependency_changes = false
                 # replace any duplicate specs with what's in the default lockfile
@@ -263,12 +269,14 @@ module Bundler
                 temp_lockfile.write(new_contents)
                 temp_lockfile.flush
 
-                had_changes = write_lockfile(lockfile_definition,
-                                             temp_lockfile.path,
-                                             install: install,
-                                             dependency_changes: dependency_changes,
-                                             unlocking_bundler: unlocking_bundler)
+                had_changes ||= write_lockfile(lockfile_definition,
+                                               temp_lockfile.path,
+                                               cache,
+                                               install: install,
+                                               dependency_changes: dependency_changes,
+                                               unlocking_bundler: unlocking_bundler)
               end
+              cache.invalidate_lockfile(lockfile_definition[:lockfile]) if had_changes
 
               # if we had changes, bundler may have updated some common
               # dependencies beyond the default lockfile, so re-run it
@@ -406,7 +414,12 @@ module Bundler
         true
       end
 
-      def write_lockfile(lockfile_definition, lockfile, install:, dependency_changes: false, unlocking_bundler: false)
+      def write_lockfile(lockfile_definition,
+                         lockfile,
+                         cache,
+                         install:,
+                         dependency_changes: false,
+                         unlocking_bundler: false)
         prepare_block = lockfile_definition[:prepare]
 
         gemfile = lockfile_definition[:gemfile]
@@ -436,6 +449,7 @@ module Bundler
 
             current_definition.resolve_with_cache!
             if current_definition.missing_specs.any?
+              cache.invalidate_checks(current_lockfile)
               Bundler.with_default_lockfile(current_lockfile) do
                 Installer.install(gemfile.dirname, current_definition, {})
               end

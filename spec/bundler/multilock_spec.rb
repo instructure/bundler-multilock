@@ -252,7 +252,12 @@ describe "Bundler::Multilock" do
     RUBY
       invoke_bundler("install")
 
-      replace_lockfile_pin("Gemfile.new.lock", "concurrent-ruby", "9.9.9")
+      replace_lockfile_pin("Gemfile.lock", "concurrent-ruby", "1.2.2")
+      replace_lockfile_pin("Gemfile.new.lock", "concurrent-ruby", "1.2.2")
+      invoke_bundler("install")
+
+      replace_lockfile_pin("Gemfile.new.lock", "concurrent-ruby", "1.2.3")
+      invoke_bundler("install", env: { "BUNDLE_LOCKFILE" => "new" })
 
       expect { invoke_bundler("check") }.to raise_error(/concurrent-ruby.*does not match/m)
     end
@@ -346,7 +351,7 @@ describe "Bundler::Multilock" do
     RUBY
       expect do
         invoke_bundler("install")
-      end.to raise_error(/net-smtp \([0-9.]+\) in Gemfile.full.lock has not been pinned/)
+      end.to raise_error(/net-smtp \([0-9.]+\) in Gemfile.full.lock has not been pinned/m)
 
       # not only have to pin net-smtp, but also its transitive dependencies
       write_gemfile(<<~RUBY)
