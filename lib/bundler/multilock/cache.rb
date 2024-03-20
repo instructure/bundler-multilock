@@ -80,6 +80,14 @@ module Bundler
         end
       end
 
+      def conflicting_requirements?(lockfile1_name, lockfile2_name, spec1, spec2)
+        reverse_dependencies1 = reverse_dependencies(lockfile1_name)[spec1.name]
+        reverse_dependencies2 = reverse_dependencies(lockfile2_name)[spec1.name]
+
+        !reverse_dependencies1.satisfied_by?(spec2.version) &&
+          !reverse_dependencies2.satisfied_by?(spec1.version)
+      end
+
       def log_missing_spec(spec)
         return if @missing_specs.include?(spec)
 
