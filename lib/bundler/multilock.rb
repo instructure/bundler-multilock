@@ -260,7 +260,7 @@ module Bundler
                 end
                 lockfile.instance_variable_set(:@ruby_version, parent_lockfile.ruby_version)
                 unless lockfile.bundler_version == parent_lockfile.bundler_version
-                  unlocking_bundler = true
+                  unlocking_bundler = parent_lockfile.bundler_version
                   lockfile.instance_variable_set(:@bundler_version, parent_lockfile.bundler_version)
                 end
 
@@ -492,6 +492,7 @@ module Bundler
             resolved_remotely = true
           end
           SharedHelpers.capture_filesystem_access do
+            definition.instance_variable_set(:@resolved_bundler_version, unlocking_bundler) if unlocking_bundler
             if Bundler.gem_version >= Gem::Version.new("2.5.6")
               definition.instance_variable_set(:@lockfile, lockfile_definition[:lockfile])
               definition.lock(true)
