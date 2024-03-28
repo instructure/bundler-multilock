@@ -859,6 +859,44 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "syncs ruby version" do
+    with_gemfile(<<~RUBY) do
+      gem "concurrent-ruby", "1.2.2"
+
+      lockfile do
+        ruby ">= 2.1"
+      end
+
+      lockfile "alt" do
+      end
+    RUBY
+      invoke_bundler("install")
+
+      expect(File.read("Gemfile.lock")).to include(Bundler::RubyVersion.system.to_s)
+      expect(File.read("Gemfile.alt.lock")).to include(Bundler::RubyVersion.system.to_s)
+
+      update_lockfile_ruby("Gemfile.alt.lock", "ruby 2.1.0p0")
+
+      expect do
+        invoke_bundler("check")
+      end.to raise_error(/ruby \(ruby 2.1.0p0\) in Gemfile.alt.lock does not match the parent lockfile's version/)
+
+      update_lockfile_ruby("Gemfile.alt.lock", nil)
+      expect do
+        invoke_bundler("check")
+      end.to raise_error(/ruby \(<none>\) in Gemfile.alt.lock does not match the parent lockfile's version/)
+
+      invoke_bundler("install")
+      expect(File.read("Gemfile.alt.lock")).to include(Bundler::RubyVersion.system.to_s)
+
+      update_lockfile_ruby("Gemfile.lock", "ruby 2.6.0p0")
+      update_lockfile_ruby("Gemfile.alt.lock", nil)
+
+      invoke_bundler("install")
+      expect(File.read("Gemfile.alt.lock")).to include("ruby 2.6.0p0")
+    end
+  end
+
   private
 
   def create_local_gem(name, content = "", subdirectory: true)
@@ -957,6 +995,14 @@ describe "Bundler::Multilock" do
 
   def update_lockfile_bundler(lockfile, version)
     new_contents = File.read(lockfile).gsub(/BUNDLED WITH\n   [0-9.]+/, "BUNDLED WITH\n  #{version}")
+
+    File.write(lockfile, new_contents)
+  end
+
+  def update_lockfile_ruby(lockfile, version)
+    old_contents = File.read(lockfile)
+    new_version = version ? "RUBY VERSION\n   #{version}\n\n" : ""
+    new_contents = old_contents.gsub(/RUBY VERSION\n   #{Bundler::RubyVersion::PATTERN}\n\n/o, new_version)
 
     File.write(lockfile, new_contents)
   end
