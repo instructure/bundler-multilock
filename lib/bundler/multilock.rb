@@ -234,16 +234,34 @@ module Bundler
                 lockfile = cache.parser(lockfile_name)
 
                 dependency_changes = false
-                # replace any duplicate specs with what's in the default lockfile
-                lockfile.specs.map! do |spec|
-                  parent_spec = parent_specs[[spec.name, spec.platform]]
-                  next spec unless parent_spec
+                forced_inherited_specs = Set.new
 
-                  # they're conflicting on purpose; don't inherit from the parent lockfile
-                  next spec if cache.conflicting_requirements?(lockfile_name, parent_lockfile_name, spec, parent_spec)
+                loop do
+                  replaced_any = false
+                  # replace any duplicate specs with what's in the parent lockfile
+                  lockfile.specs.map! do |spec|
+                    parent_spec = parent_specs[[spec.name, spec.platform]]
+                    next spec unless parent_spec
 
-                  dependency_changes ||= spec != parent_spec
-                  parent_spec
+                    if cache.reverse_dependencies(lockfile_name)[spec.name].intersect?(forced_inherited_specs) ||
+                       cache.reverse_dependencies(parent_lockfile_name)[spec.name].intersect?(forced_inherited_specs)
+                      # a conficting gem that depends on this gem was already replaced with the
+                      # version from the parent lockfile; this gem _must_ be replaced with the parent
+                      # lockfile's version (have to check the dependency chain from both lockfiles,
+                      # dependencies can be introduced or removed with different versions of gems)
+                    elsif cache.conflicting_requirements?(lockfile_name, parent_lockfile_name, spec, parent_spec)
+                      # they're conflicting on purpose; don't inherit from the parent lockfile
+                      next spec
+                    end
+
+                    if !replaced_any && !dependency_changes && spec != parent_spec
+                      replaced_any = dependency_changes = true
+                    end
+                    forced_inherited_specs << spec.name
+                    parent_spec
+                  end
+
+                  break unless replaced_any
                 end
 
                 missing_specs = parent_specs.each_value.reject do |parent_spec|

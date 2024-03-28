@@ -814,6 +814,51 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "keeps transitive dependencies in sync, even when the intermediate deps are conflicting" do
+    orig_gemfile = <<~RUBY
+      gem "ddtrace", "~> 1.13"
+
+      lockfile do
+        gem "activesupport", "6.0.0"
+      end
+
+      lockfile "rails-6.1" do
+        gem "activesupport", "6.1.0"
+      end
+    RUBY
+
+    with_gemfile(orig_gemfile) do
+      invoke_bundler("install")
+
+      write_gemfile(<<~RUBY)
+        gem "ddtrace", "~> 1.20.0"
+
+        lockfile do
+          gem "activesupport", "~> 6.0.0"
+        end
+
+        lockfile "rails-6.1" do
+          gem "activesupport", "~> 6.1.0"
+        end
+      RUBY
+
+      FileUtils.cp("Gemfile.rails-6.1.lock", "Gemfile.rails-6.1.lock.orig")
+      # roll back to ddtrace 1.20.0
+      invoke_bundler("install")
+
+      # loosen the requirement to allow > 1.20, but with it locked to
+      # 1.12. But act like the alternate lockfile didn't get updated
+      write_gemfile(orig_gemfile)
+      FileUtils.cp("Gemfile.rails-6.1.lock.orig", "Gemfile.rails-6.1.lock")
+
+      # now a plain install should sync the alternate lockfile, rolling it back too
+      invoke_bundler("install")
+
+      expect(invoke_bundler("info ddtrace")).to include("1.20.0")
+      expect(invoke_bundler("info ddtrace", env: { "BUNDLE_LOCKFILE" => "rails-6.1" })).to include("1.20.0")
+    end
+  end
+
   private
 
   def create_local_gem(name, content = "", subdirectory: true)
