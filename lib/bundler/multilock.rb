@@ -273,7 +273,7 @@ module Bundler
                     p2 != "ruby" && p1 != p2 && MatchPlatform.platforms_match?(p2, p1)
                   end
                 end
-                lockfile.instance_variable_set(:@ruby_version, parent_lockfile.ruby_version)
+                lockfile.instance_variable_set(:@ruby_version, parent_lockfile.ruby_version) if lockfile.ruby_version
                 unless lockfile.bundler_version == parent_lockfile.bundler_version
                   unlocking_bundler = parent_lockfile.bundler_version
                   lockfile.instance_variable_set(:@bundler_version, parent_lockfile.bundler_version)
@@ -341,7 +341,7 @@ module Bundler
         raise GemfileNotFound, "Could not locate lockfile #{ENV["BUNDLE_LOCKFILE"].inspect}" if ENV["BUNDLE_LOCKFILE"]
 
         # Gemfile.lock isn't explicitly specified, otherwise it would be active
-        default_lockfile_definition = lockfile_definitions[Bundler.default_lockfile(force_original: true)]
+        default_lockfile_definition = self.default_lockfile_definition
         return unless default_lockfile_definition && default_lockfile_definition[:active] == false
 
         raise GemfileEvalError, "No lockfiles marked as active"
@@ -410,6 +410,11 @@ module Bundler
         @loaded = false
       end
 
+      # @!visibility private
+      def default_lockfile_definition
+        lockfile_definitions[Bundler.default_lockfile(force_original: true)]
+      end
+
       private
 
       def expand_lockfile(lockfile)
@@ -449,6 +454,12 @@ module Bundler
         builder = Dsl.new
         builder.eval_gemfile(gemfile, &prepare_block) if prepare_block
         builder.eval_gemfile(gemfile)
+        if !builder.instance_variable_get(:@ruby_version) &&
+           (parent_lockfile = lockfile_definition[:parent]) &&
+           (parent_lockfile_definition = lockfile_definitions[parent_lockfile]) &&
+           (parent_ruby_version_requirement = parent_lockfile_definition[:ruby_version_requirement])
+          builder.instance_variable_set(:@ruby_version, parent_ruby_version_requirement)
+        end
 
         definition = builder.to_definition(lockfile, { bundler: unlocking_bundler })
         definition.instance_variable_set(:@dependency_changes, dependency_changes) if dependency_changes
@@ -506,11 +517,15 @@ module Bundler
           end
           SharedHelpers.capture_filesystem_access do
             definition.instance_variable_set(:@resolved_bundler_version, unlocking_bundler) if unlocking_bundler
+
+            # need to force it to _not_ preserve unknown sections, so that it
+            # will overwrite the ruby version
+            definition.instance_variable_set(:@unlocking_bundler, true)
             if Bundler.gem_version >= Gem::Version.new("2.5.6")
               definition.instance_variable_set(:@lockfile, lockfile_definition[:lockfile])
-              definition.lock(true)
+              definition.lock
             else
-              definition.lock(lockfile_definition[:lockfile], true)
+              definition.lock(lockfile_definition[:lockfile])
             end
           end
         ensure

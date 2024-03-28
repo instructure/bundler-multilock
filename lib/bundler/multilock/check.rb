@@ -22,8 +22,10 @@ module Bundler
 
         success = true
         unless skip_base_checks
-          base_check({ gemfile: Bundler.default_gemfile,
-                       lockfile: Bundler.default_lockfile(force_original: true) })
+          default_lockfile_definition = Multilock.default_lockfile_definition
+          default_lockfile_definition ||= { gemfile: Bundler.default_gemfile,
+                                            lockfile: Bundler.default_lockfile(force_original: true) }
+          base_check(default_lockfile_definition)
         end
         Multilock.lockfile_definitions.each do |lockfile_name, lockfile_definition|
           next if lockfile_name == Bundler.default_lockfile(force_original: true)
@@ -68,7 +70,7 @@ module Bundler
             end
           end
 
-          next false unless not_installed.empty? && definition.no_resolve_needed?
+          next false unless not_installed.empty?
 
           # cache a sentinel so that we can share a cache regardless of the check_missing_deps argument
           next :missing_deps unless (definition.locked_gems.dependencies.values - definition.dependencies).empty?
@@ -103,6 +105,11 @@ module Bundler
           unless parser.bundler_version == parent_parser.bundler_version
             Bundler.ui.error("bundler (#{parser.bundler_version}) in #{lockfile_path} " \
                              "does not match the parent lockfile's version (@#{parent_parser.bundler_version}).")
+            success = false
+          end
+          unless parser.ruby_version == parent_parser.ruby_version
+            Bundler.ui.error("ruby (#{parser.ruby_version || "<none>"}) in #{lockfile_path} " \
+                             "does not match the parent lockfile's version (#{parent_parser.ruby_version}).")
             success = false
           end
 
