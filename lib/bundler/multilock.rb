@@ -489,7 +489,7 @@ module Bundler
                 Installer.install(gemfile.dirname, current_definition, {})
               end
             end
-          rescue RubyVersionMismatch, GemNotFound, SolveFailure
+          rescue RubyVersionMismatch, GemNotFound, SolveFailure, InstallError, ProductionError
             # ignore
           end
         end
