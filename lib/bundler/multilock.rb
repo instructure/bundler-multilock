@@ -255,7 +255,10 @@ module Bundler
                       replaced_any = dependency_changes = true
                     end
                     forced_inherited_specs << spec.name
-                    parent_spec
+
+                    new_spec = parent_spec.dup
+                    new_spec.source = spec.source
+                    new_spec
                   end
 
                   break unless replaced_any
