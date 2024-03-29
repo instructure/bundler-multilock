@@ -23,7 +23,7 @@ end
 
 lockfile "ruby-2.6", active: RUBY_VERSION < "2.7" do
   # newer versions of these gems are not compatible with Ruby > 2.6
-  gem "debug", "1.8.0", require: false
+  gem "debug", "~> 1.8.0", require: false
   gem "irb", "1.6.3", require: false
   gem "stringio", "3.0.6", require: false
 end
