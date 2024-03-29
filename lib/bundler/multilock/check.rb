@@ -25,11 +25,11 @@ module Bundler
           base_check({ gemfile: Bundler.default_gemfile,
                        lockfile: Bundler.default_lockfile(force_original: true) })
         end
-        Multilock.lockfile_definitions.each do |lockfile_definition|
-          next if lockfile_definition[:lockfile] == Bundler.default_lockfile(force_original: true)
+        Multilock.lockfile_definitions.each do |lockfile_name, lockfile_definition|
+          next if lockfile_name == Bundler.default_lockfile(force_original: true)
 
-          unless lockfile_definition[:lockfile].exist?
-            Bundler.ui.error("Lockfile #{lockfile_definition[:lockfile]} does not exist.")
+          unless lockfile_name.exist?
+            Bundler.ui.error("Lockfile #{lockfile_name} does not exist.")
             success = false
             next
           end
