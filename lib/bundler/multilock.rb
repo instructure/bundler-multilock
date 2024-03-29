@@ -148,6 +148,7 @@ module Bundler
         Bundler.ui.debug("Syncing to alternate lockfiles")
 
         attempts = 1
+        previous_contents = Set.new
 
         default_root = Bundler.root
 
@@ -165,6 +166,17 @@ module Bundler
 
             relative_lockfile = lockfile_name.relative_path_from(Dir.pwd)
 
+            # prevent infinite loops of tick-tocking back and forth between two versions
+            current_contents = cache.contents(lockfile_name)
+            if previous_contents.include?(current_contents)
+              Bundler.ui.debug("Unable to converge on a single solution for #{lockfile_name}; " \
+                               "perhaps there are conflicting requirements?")
+              attempts = 1
+              previous_contents.clear
+              next
+            end
+            previous_contents << current_contents
+
             # already up to date?
             up_to_date = false
             Bundler.settings.temporary(frozen: true) do
@@ -175,6 +187,7 @@ module Bundler
             end
             if up_to_date
               attempts = 1
+              previous_contents.clear
               next
             end
 
@@ -231,44 +244,49 @@ module Bundler
                 lockfile = cache.parser(lockfile_name)
 
                 dependency_changes = false
-                forced_inherited_specs = Set.new
 
-                loop do
-                  replaced_any = false
-                  # replace any duplicate specs with what's in the parent lockfile
-                  lockfile.specs.map! do |spec|
-                    parent_spec = parent_specs[[spec.name, spec.platform]]
-                    next spec unless parent_spec
+                spec_precedences = {}
 
-                    if cache.reverse_dependencies(lockfile_name)[spec.name].intersect?(forced_inherited_specs) ||
-                       cache.reverse_dependencies(parent_lockfile_name)[spec.name].intersect?(forced_inherited_specs)
-                      # a conficting gem that depends on this gem was already replaced with the
-                      # version from the parent lockfile; this gem _must_ be replaced with the parent
-                      # lockfile's version (have to check the dependency chain from both lockfiles,
-                      # dependencies can be introduced or removed with different versions of gems)
-                    elsif cache.conflicting_requirements?(lockfile_name, parent_lockfile_name, spec, parent_spec)
-                      # they're conflicting on purpose; don't inherit from the parent lockfile
-                      next spec
+                check_precedence = lambda do |spec, parent_spec|
+                  next :parent if spec.nil?
+                  next :self if parent_spec.nil?
+                  next spec_precedences[spec.name] if spec_precedences.key?(spec.name)
+
+                  precedence = :self if cache.conflicting_requirements?(lockfile_name,
+                                                                        parent_lockfile_name,
+                                                                        spec,
+                                                                        parent_spec)
+
+                  # look through all reverse dependencies; if any of them say it
+                  # has to come from self, due to conflicts, then this gem has
+                  # to come from self as well
+                  [cache.reverse_dependencies(lockfile_name),
+                   cache.reverse_dependencies(parent_lockfile_name)].each do |reverse_dependencies|
+                    break if precedence == :self
+
+                    reverse_dependencies[spec.name].each do |dep_name|
+                      precedence = check_precedence.call(specs[dep_name], parent_specs[dep_name])
+                      break if precedence == :self
                     end
-
-                    if !replaced_any && !dependency_changes && spec != parent_spec
-                      replaced_any = dependency_changes = true
-                    end
-                    forced_inherited_specs << spec.name
-
-                    new_spec = parent_spec.dup
-                    new_spec.source = spec.source
-                    new_spec
                   end
 
-                  break unless replaced_any
+                  spec_precedences[spec.name] = precedence || :parent
                 end
 
-                missing_specs = parent_specs.each_value.reject do |parent_spec|
-                  specs.include?([parent_spec.name, parent_spec.platform])
+                # replace any duplicate specs with what's in the parent lockfile
+                lockfile.specs.map! do |spec|
+                  parent_spec = parent_specs[[spec.name, spec.platform]]
+                  next spec unless parent_spec
+
+                  next spec if check_precedence.call(spec, parent_spec) == :self
+
+                  dependency_changes ||= spec != parent_spec
+
+                  new_spec = parent_spec.dup
+                  new_spec.source = spec.source
+                  new_spec
                 end
-                lockfile.specs.replace(missing_specs + lockfile.specs) unless missing_specs.empty?
-                lockfile.sources.replace(parent_lockfile.sources + lockfile.sources).uniq!
+
                 lockfile.platforms.replace(parent_lockfile.platforms).uniq!
                 # prune more specific platforms
                 lockfile.platforms.delete_if do |p1|
@@ -309,12 +327,13 @@ module Bundler
               # once to reset them back to the default lockfile's version.
               # if it's already good, the `check` check at the beginning of
               # the loop will skip the second sync anyway.
-              if had_changes && attempts < 2
+              if had_changes
                 attempts += 1
                 Bundler.ui.debug("Re-running sync to #{relative_lockfile} to reset common dependencies")
                 redo
               else
                 attempts = 1
+                previous_contents.clear
               end
             end
           end

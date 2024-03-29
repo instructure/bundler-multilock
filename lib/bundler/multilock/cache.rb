@@ -45,7 +45,9 @@ module Bundler
       # @param lockfile_name [Pathname]
       # @return [String] the raw contents of the lockfile
       def contents(lockfile_name)
-        @contents[lockfile_name] ||= lockfile_name.read.freeze
+        @contents.fetch(lockfile_name) do
+          @contents[lockfile_name] = lockfile_name.file? && lockfile_name.read.freeze
+        end
       end
 
       # @param lockfile_name [Pathname]
@@ -119,13 +121,13 @@ module Bundler
 
         lockfile = parser(lockfile_name)
 
-        lockfile.dependencies.each_value do |spec|
-          reverse_requirements[spec.name].requirements.concat(spec.requirement.requirements)
+        lockfile.dependencies.each_value do |dep|
+          reverse_requirements[dep.name].requirements.concat(dep.requirement.requirements)
         end
         lockfile.specs.each do |spec|
-          spec.dependencies.each do |dependency|
-            reverse_requirements[dependency.name].requirements.concat(dependency.requirement.requirements)
-            reverse_dependencies[dependency.name] << spec.name
+          spec.dependencies.each do |dep|
+            reverse_requirements[dep.name].requirements.concat(dep.requirement.requirements)
+            reverse_dependencies[dep.name] << spec.name
           end
         end
 
