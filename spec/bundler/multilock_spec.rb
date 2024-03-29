@@ -897,6 +897,39 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "ignores installation errors when an alternate lockfile specifies a gem " \
+     "version incompatible with the current ruby" do
+    with_gemfile(<<~RUBY) do
+      gem "nokogiri"
+
+      lockfile do
+      end
+
+      lockfile "alt" do
+      end
+    RUBY
+      invoke_bundler("install")
+
+      incompatible_nokogiri_version = case RUBY_VERSION
+                                      when ("3.3"..)
+                                        "1.15.6"
+                                      when ("3.0"..)
+                                        skip "There isn't a recent nokogiri version incompatible " \
+                                             "with this version of ruby; just rely on this test " \
+                                             "running on other ruby versions"
+                                      else
+                                        "1.16.0"
+                                      end
+
+      replace_lockfile_pin("Gemfile.lock", "nokogiri", incompatible_nokogiri_version)
+      replace_lockfile_pin("Gemfile.alt.lock", "nokogiri", incompatible_nokogiri_version)
+
+      expect { invoke_bundler("check") }.to raise_error(/The following gems are missing/)
+
+      invoke_bundler("install")
+    end
+  end
+
   private
 
   def create_local_gem(name, content = "", subdirectory: true)
@@ -988,7 +1021,7 @@ describe "Bundler::Multilock" do
   # @param gem [String] The gem's name
   # @param version [String] The new version to "pin" the gem to
   def replace_lockfile_pin(lockfile, gem, version)
-    new_contents = File.read(lockfile).gsub(%r{#{gem} \([0-9.]+\)}, "#{gem} (#{version})")
+    new_contents = File.read(lockfile).gsub(%r{#{gem} \([0-9a-z.]+((?:-[a-z0-9_]+)*)\)}, "#{gem} (#{version}\\1)")
 
     File.write(lockfile, new_contents)
   end
