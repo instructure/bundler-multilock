@@ -56,26 +56,24 @@ module Bundler
         # allow short-form lockfile names
         lockfile = expand_lockfile(lockfile)
 
-        if lockfile_definitions.find { |definition|  definition[:lockfile] == lockfile }
-          raise ArgumentError, "Lockfile #{lockfile} is already defined"
-        end
+        raise ArgumentError, "Lockfile #{lockfile} is already defined" if lockfile_definitions.key?(lockfile)
 
         env_lockfile = lockfile if active && ENV["BUNDLE_LOCKFILE"] == "active"
         env_lockfile ||= ENV["BUNDLE_LOCKFILE"]&.then { |l| expand_lockfile(l) }
         active = env_lockfile == lockfile if env_lockfile
 
-        if active && (old_active = lockfile_definitions.find { |definition| definition[:active] })
+        if active && (old_active = lockfile_definitions.each_value.find { |definition| definition[:active] })
           raise ArgumentError, "Only one lockfile (#{old_active[:lockfile]}) can be flagged as active"
         end
 
         parent = expand_lockfile(parent)
         if parent != Bundler.default_lockfile(force_original: true) &&
-           !lockfile_definitions.find { |definition| definition[:lockfile] == parent } &&
+           !lockfile_definitions.key?(parent) &&
            !parent.exist?
           raise ArgumentError, "Parent lockfile #{parent} is not defined"
         end
 
-        lockfile_definitions << (lockfile_def = {
+        lockfile_definitions[lockfile] = (lockfile_def = {
           gemfile: (gemfile && Bundler.root.join(gemfile).expand_path) || Bundler.default_gemfile,
           lockfile: lockfile,
           active: active,
@@ -158,8 +156,7 @@ module Bundler
         synced_any = false
         local_parser_cache = {}
         Bundler.settings.temporary(cache_all_platforms: true, suppress_install_using_messages: true) do
-          lockfile_definitions.each do |lockfile_definition|
-            lockfile_name = lockfile_definition[:lockfile]
+          lockfile_definitions.each do |lockfile_name, lockfile_definition|
             # we already wrote the default lockfile
             next if lockfile_name == Bundler.default_lockfile(force_original: true)
 
@@ -334,7 +331,7 @@ module Bundler
         @loaded = true
         return if lockfile_definitions.empty?
 
-        return unless lockfile_definitions.none? { |definition| definition[:active] }
+        return unless lockfile_definitions.each_value.none? { |definition| definition[:active] }
 
         if ENV["BUNDLE_LOCKFILE"]&.then { |l| expand_lockfile(l) } ==
            Bundler.default_lockfile(force_original: true)
@@ -344,9 +341,7 @@ module Bundler
         raise GemfileNotFound, "Could not locate lockfile #{ENV["BUNDLE_LOCKFILE"].inspect}" if ENV["BUNDLE_LOCKFILE"]
 
         # Gemfile.lock isn't explicitly specified, otherwise it would be active
-        default_lockfile_definition = lockfile_definitions.find do |definition|
-          definition[:lockfile] == Bundler.default_lockfile(force_original: true)
-        end
+        default_lockfile_definition = lockfile_definitions[Bundler.default_lockfile(force_original: true)]
         return unless default_lockfile_definition && default_lockfile_definition[:active] == false
 
         raise GemfileEvalError, "No lockfiles marked as active"
@@ -411,7 +406,7 @@ module Bundler
 
       # @!visibility private
       def reset!
-        @lockfile_definitions = []
+        @lockfile_definitions = {}
         @loaded = false
       end
 
