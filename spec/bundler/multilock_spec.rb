@@ -36,7 +36,7 @@ describe "Bundler::Multilock" do
 
         source "https://rubygems.org"
 
-        plugin "bundler-multilock", "~> 1.2"
+        plugin "bundler-multilock", "~> #{Gem::Version.new(Bundler::Multilock::VERSION).segments[0..1].join(".")}"
         return unless Plugin.installed?("bundler-multilock")
 
         Plugin.send(:load_plugin, "bundler-multilock")
