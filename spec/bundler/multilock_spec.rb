@@ -934,6 +934,16 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "doesn't error when no lockfiles are defined but ruby version is set" do
+    with_gemfile(<<~RUBY) do
+      gem "nokogiri"
+
+      ruby ">= 2.1"
+    RUBY
+      invoke_bundler("install")
+    end
+  end
+
   private
 
   def create_local_gem(name, content = "", subdirectory: true)
