@@ -82,17 +82,13 @@ module Bundler
           enforce_pinned_additional_dependencies: enforce_pinned_additional_dependencies
         })
 
-        if (defined?(CLI::Check) ||
-            defined?(CLI::Install) ||
-            defined?(CLI::Lock) ||
-            defined?(CLI::Update)) &&
-           !defined?(CLI::Cache) && !env_lockfile
+        # If they're using BUNDLE_LOCKFILE, then they really do want to
+        # use a particular lockfile, and it overrides whatever they
+        # dynamically set in their gemfile
+        if !env_lockfile && defined?(CLI) &&
+           %i[check install lock update].include?(CLI.instance&.current_command_chain&.first)
           # always use Gemfile.lock for `bundle check`, `bundle install`,
-          # `bundle lock`, and `bundle update`. `bundle cache` delegates to
-          # `bundle install`, but we want that to run as normal.
-          # If they're using BUNDLE_LOCKFILE, then they really do want to
-          # use a particular lockfile, and it overrides whatever they
-          # dynamically set in their gemfile
+          # `bundle lock`, and `bundle update`.
           active = lockfile == Bundler.default_lockfile(force_original: true)
         end
 
@@ -577,25 +573,29 @@ end
 Bundler::LazySpecification.include(Bundler::MatchMetadata) if defined?(Bundler::MatchMetadata)
 Bundler::Multilock.inject_preamble unless Bundler::Multilock.loaded?
 
-# this is terrible, but we can't prepend into these modules because we only load
-# _inside_ of the CLI commands already running
-if defined?(Bundler::CLI::Check)
-  require_relative "multilock/check"
-  at_exit do
-    next unless $!.nil?
-    next if $!.is_a?(SystemExit) && !$!.success?
+if defined?(Bundler::CLI)
+  require_relative "multilock/ext/cli"
 
-    next if Bundler::Multilock::Check.run
+  # this is terrible, but we can't prepend into these modules because we only load
+  # _inside_ of the CLI commands already running
+  if Bundler::CLI.instance&.current_command_chain&.first == :check
+    require_relative "multilock/check"
+    at_exit do
+      next unless $!.nil?
+      next if $!.is_a?(SystemExit) && !$!.success?
 
-    Bundler.ui.warn("You can attempt to fix by running `bundle install`")
-    exit 1
+      next if Bundler::Multilock::Check.run
+
+      Bundler.ui.warn("You can attempt to fix by running `bundle install`")
+      exit 1
+    end
   end
-end
-if defined?(Bundler::CLI::Lock)
-  at_exit do
-    next unless $!.nil?
-    next if $!.is_a?(SystemExit) && !$!.success?
+  if Bundler::CLI.instance&.current_command_chain&.first == :lock
+    at_exit do
+      next unless $!.nil?
+      next if $!.is_a?(SystemExit) && !$!.success?
 
-    Bundler::Multilock.after_install_all(install: false)
+      Bundler::Multilock.after_install_all(install: false)
+    end
   end
 end
