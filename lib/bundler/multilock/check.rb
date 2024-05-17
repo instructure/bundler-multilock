@@ -120,7 +120,7 @@ module Bundler
 
           # check for conflicting requirements (and build list of pins, in the same loop)
           parser.specs.each do |spec|
-            parent_spec = @cache.specs(parent_lockfile_name)[[spec.name, spec.platform]]
+            parent_spec = @cache.find_matching_spec(parent_lockfile_name, spec)
 
             if lockfile_definition[:enforce_pinned_additional_dependencies]
               # look through what this spec depends on, and keep track of all pinned requirements

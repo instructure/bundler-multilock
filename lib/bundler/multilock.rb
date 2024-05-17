@@ -217,7 +217,7 @@ module Bundler
                 end
 
               # add a source for the current gem
-              gem_spec = parent_specs[[File.basename(Bundler.root), "ruby"]]
+              gem_spec = parent_specs.dig(File.basename(Bundler.root), "ruby")
 
               if gem_spec
                 adjusted_parent_lockfile_contents += <<~TEXT
@@ -257,9 +257,8 @@ module Bundler
 
                 # replace any duplicate specs with what's in the parent lockfile
                 lockfile.specs.map! do |spec|
-                  parent_spec = parent_specs[[spec.name, spec.platform]]
+                  parent_spec = cache.find_matching_spec(parent_specs, spec)
                   next spec unless parent_spec
-
                   next spec if check_precedence.call(spec, parent_spec) == :self
 
                   dependency_changes ||= spec != parent_spec

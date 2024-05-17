@@ -863,6 +863,35 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "syncs gems whose platforms changed slightly" do
+    if RUBY_VERSION < "3.0"
+      skip "The test case that triggers this requires Ruby 3.0+; " \
+           "just rely on this test running on other ruby versions"
+    end
+
+    with_gemfile(<<~RUBY) do
+      gem "sqlite3", "~> 1.7"
+
+      lockfile("all") {}
+    RUBY
+      invoke_bundler("install")
+
+      write_gemfile(<<~RUBY)
+        gem "sqlite3"
+
+        lockfile("all") {}
+      RUBY
+      invoke_bundler("install")
+
+      expect(invoke_bundler("info sqlite3")).to include("1.7.3")
+      expect(invoke_bundler("info sqlite3", env: { "BUNDLE_LOCKFILE" => "all" })).to include("1.7.3")
+
+      invoke_bundler("update sqlite3")
+      expect(invoke_bundler("info sqlite3")).not_to include("1.7.3")
+      expect(invoke_bundler("info sqlite3", env: { "BUNDLE_LOCKFILE" => "all" })).not_to include("1.7.3")
+    end
+  end
+
   it "syncs ruby version" do
     with_gemfile(<<~RUBY) do
       gem "concurrent-ruby", "1.2.2"
