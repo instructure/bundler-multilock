@@ -202,7 +202,6 @@ module Bundler
               Bundler.ui.info("Syncing to #{relative_lockfile}...") if attempts == 1
               synced_any = true
 
-              specs = lockfile_name.exist? ? cache.specs(lockfile_name) : {}
               parent_lockfile_name = lockfile_definition[:parent]
               parent_root = parent_lockfile_name.dirname
               parent_specs = cache.specs(parent_lockfile_name)
@@ -252,19 +251,6 @@ module Bundler
                                                                         parent_lockfile_name,
                                                                         spec,
                                                                         parent_spec)
-
-                  # look through all reverse dependencies; if any of them say it
-                  # has to come from self, due to conflicts, then this gem has
-                  # to come from self as well
-                  [cache.reverse_dependencies(lockfile_name),
-                   cache.reverse_dependencies(parent_lockfile_name)].each do |reverse_dependencies|
-                    break if precedence == :self
-
-                    reverse_dependencies[spec.name].each do |dep_name|
-                      precedence = check_precedence.call(specs[dep_name], parent_specs[dep_name])
-                      break if precedence == :self
-                    end
-                  end
 
                   spec_precedences[spec.name] = precedence || :parent
                 end
