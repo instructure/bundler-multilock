@@ -175,10 +175,11 @@ module Bundler
 
             # already up to date?
             up_to_date = false
+            conflicts = Set.new
             Bundler.settings.temporary(frozen: true) do
               Bundler.ui.silence do
                 up_to_date = checker.base_check(lockfile_definition, check_missing_deps: true) &&
-                             checker.deep_check(lockfile_definition)
+                             checker.deep_check(lockfile_definition, conflicts: conflicts)
               end
             end
             if up_to_date
@@ -247,10 +248,14 @@ module Bundler
                   next :self if parent_spec.nil?
                   next spec_precedences[spec.name] if spec_precedences.key?(spec.name)
 
-                  precedence = :self if cache.conflicting_requirements?(lockfile_name,
-                                                                        parent_lockfile_name,
-                                                                        spec,
-                                                                        parent_spec)
+                  precedence = if !(cache.reverse_dependencies(lockfile_name)[spec.name] & conflicts).empty?
+                                 :parent
+                               elsif cache.conflicting_requirements?(lockfile_name,
+                                                                     parent_lockfile_name,
+                                                                     spec,
+                                                                     parent_spec)
+                                 :self
+                               end
 
                   spec_precedences[spec.name] = precedence || :parent
                 end
