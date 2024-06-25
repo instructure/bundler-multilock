@@ -512,6 +512,14 @@ module Bundler
           previous_ui_level = Bundler.ui.level
           Bundler.ui.level = "warn"
           begin
+            # force a remote resolution if intermediate gems are missing
+            if definition.instance_variable_get(:@locked_spec_with_missing_deps) ||
+               definition.instance_variable_get(:@locked_spec_with_invalid_deps) ||
+               definition.instance_variable_get(:@missing_lockfile_dep) ||
+               definition.instance_variable_get(:@invalid_lockfile_dep)
+              raise SolveFailure
+            end
+
             # this is a horrible hack, to fix what I consider to be a Bundler bug.
             # basically, if you have multiple platform specific gems in your
             # lockfile, and that gem gets unlocked, Bundler will only search
