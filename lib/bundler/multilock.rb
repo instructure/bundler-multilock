@@ -260,6 +260,9 @@ module Bundler
                   spec_precedences[spec.name] = precedence || :parent
                 end
 
+                lockfile.sources.map! do |source|
+                  parent_lockfile.sources.find { |s| s == source } || source
+                end
                 # replace any duplicate specs with what's in the parent lockfile
                 lockfile.specs.map! do |spec|
                   parent_spec = cache.find_matching_spec(parent_specs, spec)
@@ -268,9 +271,7 @@ module Bundler
 
                   dependency_changes ||= spec != parent_spec
 
-                  new_spec = parent_spec.dup
-                  new_spec.source = spec.source
-                  new_spec
+                  parent_spec
                 end
 
                 lockfile.platforms.replace(parent_lockfile.platforms).uniq!
@@ -483,6 +484,13 @@ module Bundler
         # from someone else
         if current_lockfile.exist? && install
           Bundler.settings.temporary(frozen: true) do
+            # it keeps the same sources as the builder, which now shares with
+            # `definition` above; give it its own copy to avoid stomping on it
+            builder.instance_variable_set(
+              :@sources,
+              builder.instance_variable_get(:@sources).dup
+            )
+
             current_definition = builder.to_definition(current_lockfile, {})
             # if something has changed, we skip this step; it's unlocking anyway
             next unless current_definition.no_resolve_needed?

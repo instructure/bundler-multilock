@@ -974,6 +974,24 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "syncs git sources that have updated" do
+    with_gemfile(<<~RUBY) do
+      gem "rspecq", github: "instructure/rspecq"
+
+      lockfile "alt" do
+      end
+    RUBY
+      invoke_bundler("install")
+      replace_lockfile_git_pin("d7fa5536da01cccb5109ba05c9e236d6660da593")
+      invoke_bundler("install")
+
+      expect(invoke_bundler("info rspecq")).to include("d7fa553")
+
+      invoke_bundler("update rspecq")
+      expect(invoke_bundler("info rspecq")).not_to include("d7fa553")
+    end
+  end
+
   private
 
   def create_local_gem(name, content = "", subdirectory: true)
@@ -1068,6 +1086,12 @@ describe "Bundler::Multilock" do
     new_contents = File.read(lockfile).gsub(%r{#{gem} \([0-9a-z.]+((?:-[a-z0-9_]+)*)\)}, "#{gem} (#{version}\\1)")
 
     File.write(lockfile, new_contents)
+  end
+
+  def replace_lockfile_git_pin(revision)
+    new_contents = File.read("Gemfile.lock").gsub(/revision: [0-9a-f]+/, "revision: #{revision}")
+
+    File.write("Gemfile.lock", new_contents)
   end
 
   def update_lockfile_bundler(lockfile, version)
