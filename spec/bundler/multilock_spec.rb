@@ -827,7 +827,12 @@ describe "Bundler::Multilock" do
       end
     RUBY
 
-    with_gemfile(orig_gemfile) do
+    with_gemfile("") do
+      # install once with nothing so that it doesn't try to lock every single
+      # platform available for FFI
+      invoke_bundler("install")
+
+      write_gemfile(orig_gemfile)
       invoke_bundler("install")
 
       write_gemfile(<<~RUBY)
