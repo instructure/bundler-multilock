@@ -313,6 +313,34 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "maintains consistency across local gem's lockfiless when one is included in the other" do
+    with_gemfile(<<~RUBY) do
+      lockfile("local_test/Gemfile.lock",
+               gemfile: "local_test/Gemfile")
+
+      gem "local_test", path: "local_test"
+      gem "net-smtp", "0.3.2"
+    RUBY
+      create_local_gem("local_test", <<~RUBY)
+        spec.add_dependency "net-smtp", "~> 0.3"
+      RUBY
+
+      invoke_bundler("install")
+
+      replace_lockfile_pin("local_test/Gemfile.lock", "net-smtp", "0.3.3")
+
+      # write_gemfile(<<~RUBY)
+      #   lockfile("local_test/Gemfile.lock",
+      #          gemfile: "local_test/Gemfile")
+
+      #   gem "net-smtp", "~> 0.3.2"
+      # RUBY
+
+      invoke_bundler("install")
+      expect(File.read("local_test/Gemfile.lock")).to include("0.3.2")
+    end
+  end
+
   it "syncs from a parent lockfile" do
     with_gemfile(<<~RUBY) do
       lockfile do
