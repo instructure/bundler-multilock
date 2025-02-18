@@ -844,7 +844,7 @@ describe "Bundler::Multilock" do
 
   it "keeps transitive dependencies in sync, even when the intermediate deps are conflicting" do
     orig_gemfile = <<~RUBY
-      gem "ddtrace", "~> 1.13"
+      gem 'datadog', '~> 2.0'
 
       lockfile do
         gem "activesupport", "6.0.0"
@@ -864,7 +864,7 @@ describe "Bundler::Multilock" do
       invoke_bundler("install")
 
       write_gemfile(<<~RUBY)
-        gem "ddtrace", "~> 1.20.0"
+        gem 'datadog', '~> 2.10.0'
 
         lockfile do
           gem "activesupport", "~> 6.0.0"
@@ -887,8 +887,8 @@ describe "Bundler::Multilock" do
       # now a plain install should sync the alternate lockfile, rolling it back too
       invoke_bundler("install")
 
-      expect(invoke_bundler("info ddtrace")).to include("1.20.0")
-      expect(invoke_bundler("info ddtrace", env: { "BUNDLE_LOCKFILE" => "rails-6.1" })).to include("1.20.0")
+      expect(invoke_bundler("info datadog")).to include("2.10.0")
+      expect(invoke_bundler("info datadog", env: { "BUNDLE_LOCKFILE" => "rails-6.1" })).to include("2.10.0")
     end
   end
 
