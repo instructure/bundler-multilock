@@ -12,18 +12,10 @@ return unless Plugin.installed?("bundler-multilock")
 
 Plugin.send(:load_plugin, "bundler-multilock")
 
-lockfile active: RUBY_VERSION >= "2.7" do
-  gem "debug", "~> 1.9", require: false
-  gem "irb", "~> 1.11", require: false
-  gem "rubocop-inst", "~> 1.0", require: false
-  gem "rubocop-rake", "~> 0.6", require: false
-  gem "rubocop-rspec", "~> 2.24", require: false
-  gem "stringio", "~> 3.1", require: false
-end
-
-lockfile "ruby-2.6", active: RUBY_VERSION < "2.7" do
-  # newer versions of these gems are not compatible with Ruby > 2.6
-  gem "debug", "~> 1.8.0", require: false
-  gem "irb", "1.6.3", require: false
-  gem "stringio", "3.0.6", require: false
-end
+gem "debug", "~> 1.10", require: false
+gem "irb", "~> 1.15", require: false
+gem 'rubocop', '~> 1.72', require: false
+gem "rubocop-inst", "~> 1.0", require: false
+gem "rubocop-rake", "~> 0.7", require: false
+gem "rubocop-rspec", "~> 3.5", require: false
+gem "stringio", "~> 3.1", require: false

@@ -14,11 +14,11 @@ Gem::Specification.new do |spec|
   spec.files         = Dir.glob("lib/**/*") + %w[plugins.rb]
   spec.require_paths = ["lib"]
 
-  spec.required_ruby_version = ">= 2.6"
+  spec.required_ruby_version = ">= 3.1"
 
-  spec.add_dependency "bundler", ">= 2.4.19", "< 2.6"
+  spec.add_dependency "bundler", ">= 2.4.19", "< 2.7"
 
   spec.add_development_dependency "gem-release", "~> 2.2"
-  spec.add_development_dependency "rake", "~> 13.0"
-  spec.add_development_dependency "rspec", "~> 3.12"
+  spec.add_development_dependency "rake", "~> 13.2"
+  spec.add_development_dependency "rspec", "~> 3.13"
 end
