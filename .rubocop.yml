@@ -3,11 +3,11 @@ inherit_gem:
   - rubocop.yml
   - rubocop-rspec.yml
 
-require:
+plugins:
   - rubocop-rake
 
 AllCops:
-  TargetRubyVersion: 2.6
+  TargetRubyVersion: 3.1
 
 Bundler/DuplicatedGem:
   Enabled: false
