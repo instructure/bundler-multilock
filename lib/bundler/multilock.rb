@@ -248,7 +248,7 @@ module Bundler
                   next :self if parent_spec.nil?
                   next spec_precedences[spec.name] if spec_precedences.key?(spec.name)
 
-                  precedence = if !(cache.reverse_dependencies(lockfile_name)[spec.name] & conflicts).empty?
+                  precedence = if !(cache.reverse_dependencies(lockfile_name)[spec.name] & conflicts).empty? # rubocop:disable Style/ArrayIntersect -- not an array
                                  :parent
                                elsif cache.conflicting_requirements?(lockfile_name,
                                                                      parent_lockfile_name,

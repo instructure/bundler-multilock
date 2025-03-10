@@ -13,9 +13,7 @@ return unless Plugin.installed?("bundler-multilock")
 Plugin.send(:load_plugin, "bundler-multilock")
 
 gem "debug", "~> 1.10", require: false
-gem "irb", "~> 1.15", require: false
-gem 'rubocop', '~> 1.72', require: false
-gem "rubocop-inst", "~> 1.0", require: false
+gem "rubocop", "~> 1.72", require: false
+gem "rubocop-inst", "~> 1", require: false
 gem "rubocop-rake", "~> 0.7", require: false
 gem "rubocop-rspec", "~> 3.5", require: false
-gem "stringio", "~> 3.1", require: false

@@ -579,15 +579,15 @@ describe "Bundler::Multilock" do
     RUBY
       invoke_bundler("install")
 
-      invoke_bundler("lock --add-platform unknown")
+      invoke_bundler("lock --add-platform java")
 
       invoke_bundler("install")
-      expect(File.read("Gemfile.full.lock")).to include("unknown")
+      expect(File.read("Gemfile.full.lock")).to include("java")
 
-      invoke_bundler("lock --remove-platform unknown")
+      invoke_bundler("lock --remove-platform java")
 
       invoke_bundler("install")
-      expect(File.read("Gemfile.full.lock")).not_to include("unknown")
+      expect(File.read("Gemfile.full.lock")).not_to include("java")
     end
   end
 
@@ -962,7 +962,9 @@ describe "Bundler::Multilock" do
   it "ignores installation errors when an alternate lockfile specifies a gem " \
      "version incompatible with the current ruby" do
     with_gemfile(<<~RUBY) do
-      gem "nokogiri"
+      # needs to be pinned to 1.17.2, because nokogiri changed the supported linux platforms in 1.18.0
+      # from x86_64-linux to x86_64-linux-gnu and x86_64-linux-musl
+      gem "nokogiri", "1.17.2"
 
       lockfile do
       end
@@ -971,6 +973,12 @@ describe "Bundler::Multilock" do
       end
     RUBY
       invoke_bundler("install")
+
+      # Transform this back into an unpinned nokogiri otherwise bundler won't think
+      # the incompatible version needs to be installed
+      replace_string("Gemfile", "gem \"nokogiri\", \"1.17.2\"", "gem \"nokogiri\"")
+      replace_string("Gemfile.lock", "nokogiri (= 1.17.2)", "nokogiri")
+      replace_string("Gemfile.alt.lock", "nokogiri (= 1.17.2)", "nokogiri")
 
       incompatible_nokogiri_version = case RUBY_VERSION
                                       when ("3.3"..)
@@ -1120,6 +1128,12 @@ describe "Bundler::Multilock" do
     new_contents = File.read("Gemfile.lock").gsub(/revision: [0-9a-f]+/, "revision: #{revision}")
 
     File.write("Gemfile.lock", new_contents)
+  end
+
+  def replace_string(lockfile, old_string, new_string)
+    new_contents = File.read(lockfile).gsub(old_string, new_string)
+
+    File.write(lockfile, new_contents)
   end
 
   def update_lockfile_bundler(lockfile, version)
