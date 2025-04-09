@@ -897,6 +897,7 @@ describe "Bundler::Multilock" do
       skip "The test case that triggers this requires Ruby 3.0+; " \
            "just rely on this test running on other ruby versions"
     end
+    skip "Modern bundler is required on modern Ruby for this test." if RUBY_VERSION >= "3.4" && Bundler::VERSION < "2.5"
 
     with_gemfile(<<~RUBY) do
       gem "sqlite3", "~> 1.7"
