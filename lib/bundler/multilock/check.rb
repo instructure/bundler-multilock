@@ -177,8 +177,10 @@ module Bundler
 
             next if pinned
 
-            Bundler.ui.error("#{spec} in #{lockfile_path} has not been pinned to a specific version,  " \
-                             "which is required since it is not part of the parent lockfile.")
+            message = "#{spec} in #{lockfile_path} has not been pinned to a specific version,  " \
+                      "which is required since it is not part of the parent lockfile."
+            message << " Be sure to set the ref to a commit hash for git sources." if spec.source.is_a?(Source::Git)
+            Bundler.ui.error(message)
             success = false
           end
 
