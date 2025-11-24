@@ -19,7 +19,7 @@ jobs:
       BUNDLER_VERSION: ${{ matrix.bundler-version }}
       BUNDLE_LOCKFILE: active
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -36,7 +36,7 @@ jobs:
     env:
       BUNDLE_LOCKFILE: active
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
