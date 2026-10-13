@@ -41,6 +41,6 @@ jobs:
           bundle config unset deployment
           bundle exec gem bump -v ${{ inputs.version }} -m "v%{version}"
           bundle install
-          git add Gemfile.lock Gemfile.ruby-2.6.lock
+          git add Gemfile.lock
           git commit --amend --no-edit
       - uses: rubygems/release-gem@v1
