@@ -21,7 +21,7 @@ jobs:
       # faster startup for the many short-lived bundler processes the specs run
       JRUBY_OPTS: --dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -38,7 +38,7 @@ jobs:
     env:
       BUNDLE_LOCKFILE: active
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
