@@ -635,7 +635,7 @@ module Bundler
   end
 end
 
-Bundler::Multilock::Preamble.inject unless Bundler::Multilock.loaded?
+Bundler::Multilock::Preamble.inject unless Bundler::Multilock.loaded? || Bundler.frozen_bundle?
 
 if Bundler::Multilock.cli_loaded?
   require_relative "multilock/ext/cli"
