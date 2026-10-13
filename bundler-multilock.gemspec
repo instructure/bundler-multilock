@@ -14,7 +14,7 @@ Gem::Specification.new do |spec|
   spec.files         = Dir.glob("lib/**/*") + %w[plugins.rb]
   spec.require_paths = ["lib"]
 
-  spec.required_ruby_version = ">= 3.1"
+  spec.required_ruby_version = ">= 3.2"
 
-  spec.add_dependency "bundler", ">= 2.4.19", "< 2.7"
+  spec.add_dependency "bundler", ">= 4.1.0.beta2", "< 5"
 end

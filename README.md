@@ -37,6 +37,9 @@ a dependency (like a Rails upgrade).
 
 ## Installation
 
+Bundler::Multilock 2.0 requires Bundler 4.1 or newer. Use version 1.x with older
+versions of Bundler.
+
 Install the gem and add to the Gemfile by executing:
 
 ```bash
@@ -52,9 +55,8 @@ Add additional lockfiles to your Gemfile like so:
 
 source "https://rubygems.org"
 
-plugin "bundler-multilock", "~> 1.0"
-return unless Plugin.installed?("bundler-multilock")
-Plugin.send(:load_plugin, "bundler-multilock")
+plugin "bundler-multilock", "~> 2.0"
+return unless Plugin.loaded?("bundler-multilock")
 
 lockfile "rails-6.1" do
   gem "rails", "~> 6.1"
@@ -87,6 +89,21 @@ BUNDLE_LOCKFILE=rails-7.0 bundle exec rspec
 
 You can also dynamically select it in your Gemfile, and pass `active: true`
 to (exactly one!) `lockfile` method.
+
+A lockfile can also use a completely separate Gemfile:
+
+```ruby
+lockfile "other/Gemfile.lock", gemfile: "other/Gemfile"
+```
+
+That Gemfile may also include the same preamble at the top, so that
+it loads the plugin when it's used directly (for example, with
+`BUNDLE_GEMFILE=other/Gemfile`):
+
+```ruby
+plugin "bundler-multilock", "~> 2.0"
+return unless Plugin.loaded?("bundler-multilock")
+```
 
 In some cases, you may want to essentially disable bundler-multilock's
 syncing behavior, while still allowing the Gemfile to select the active

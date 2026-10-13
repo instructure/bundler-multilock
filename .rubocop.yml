@@ -7,7 +7,7 @@ plugins:
   - rubocop-rake
 
 AllCops:
-  TargetRubyVersion: 3.1
+  TargetRubyVersion: 3.2
 
 Bundler/DuplicatedGem:
   Enabled: false

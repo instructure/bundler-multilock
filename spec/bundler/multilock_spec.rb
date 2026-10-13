@@ -1,11 +1,6 @@
 # frozen_string_literal: true
 
-require "tempfile"
-require "open3"
-require "fileutils"
-require "shellwords"
-
-describe "Bundler::Multilock" do
+describe Bundler::Multilock do
   it "generates a default Gemfile.lock when loaded, but not configured" do
     with_gemfile(<<~RUBY) do
       gem "concurrent-ruby", "1.2.2"
@@ -15,82 +10,6 @@ describe "Bundler::Multilock" do
 
       expect(output).to include("1.2.2")
       expect(File.read("Gemfile.lock")).to include("1.2.2")
-    end
-  end
-
-  it "injects plugin load commands into the Gemfile when installing" do
-    with_gemfile("") do
-      File.write("Gemfile", <<~RUBY)
-        # frozen_string_literal: true
-
-        source "https://rubygems.org"
-
-        gem "concurrent-ruby", "1.2.2"
-      RUBY
-
-      local_git = Shellwords.escape(File.expand_path("../..", __dir__))
-      invoke_bundler("plugin install bundler-multilock --local_git=#{local_git}")
-
-      expect(File.read("Gemfile")).to eq(<<~RUBY)
-        # frozen_string_literal: true
-
-        source "https://rubygems.org"
-
-        plugin "bundler-multilock", "~> #{Gem::Version.new(Bundler::Multilock::VERSION).segments[0..1].join(".")}"
-        return unless Plugin.installed?("bundler-multilock")
-
-        Plugin.send(:load_plugin, "bundler-multilock")
-
-        gem "concurrent-ruby", "1.2.2"
-      RUBY
-    end
-  end
-
-  it "does not inject duplicate plugin load commands when you prefer single quotes" do
-    gemfile = <<~RUBY
-      # frozen_string_literal: true
-
-      source 'https://rubygems.org'
-
-      plugin 'bundler-multilock', '~> 1.2'
-      return unless Plugin.installed?('bundler-multilock')
-
-      Plugin.send(:load_plugin, 'bundler-multilock')
-
-      gem 'concurrent-ruby', '1.2.2'
-    RUBY
-
-    with_gemfile("") do
-      File.write("Gemfile", gemfile)
-
-      local_git = Shellwords.escape(File.expand_path("../..", __dir__))
-      invoke_bundler("plugin install bundler-multilock --local_git=#{local_git}")
-
-      expect(File.read("Gemfile")).to eq gemfile
-    end
-  end
-
-  it "does not inject when a secondary Gemfile has the necessary commands" do
-    with_gemfile("") do
-      File.write("Gemfile", <<~RUBY)
-        # frozen_string_literal: true
-
-        source "https://rubygems.org"
-
-        eval_gemfile("injected.rb")
-      RUBY
-
-      File.write("injected.rb", <<~RUBY)
-        plugin "bundler-multilock", "~> 1.2", path: #{File.expand_path("../..", __dir__).inspect}
-        return unless Plugin.installed?("bundler-multilock")
-
-        Plugin.send(:load_plugin, "bundler-multilock")
-
-        gem "concurrent-ruby", "1.2.2"
-      RUBY
-
-      invoke_bundler("install")
-      expect(File.read("Gemfile")).not_to include("bundler-multilock")
     end
   end
 
@@ -313,6 +232,96 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "doesn't add plugins from the main Gemfile to the lockfiles of other Gemfiles" do
+    with_gemfile(<<~RUBY) do
+      lockfile("other/Gemfile.lock", gemfile: "other/Gemfile")
+    RUBY
+      FileUtils.mkdir_p("other")
+      File.write("other/Gemfile", <<~RUBY)
+        source "https://rubygems.org"
+
+        gem "rake", "13.2.1"
+      RUBY
+
+      invoke_bundler("install")
+
+      expect(File.read("Gemfile.lock")).to include("bundler-multilock")
+      expect(File.read("other/Gemfile.lock")).not_to include("bundler-multilock")
+      invoke_bundler("check")
+    end
+  end
+
+  it "doesn't warn about plugins being listed twice when another Gemfile declares them too" do
+    with_gemfile("") do
+      create_local_gem("dummy-plugin", 'spec.files = ["plugins.rb"]')
+      File.write("dummy-plugin/plugins.rb", "# does nothing\n")
+      dummy_plugin = %(plugin "dummy-plugin", path: #{File.expand_path("dummy-plugin").inspect})
+      write_gemfile(<<~RUBY)
+        #{dummy_plugin}
+
+        lockfile("other/Gemfile.lock", gemfile: "other/Gemfile")
+      RUBY
+      FileUtils.mkdir_p("other")
+      other_gemfile = <<~RUBY
+        source "https://rubygems.org"
+
+        plugin "bundler-multilock", "#{plugin_requirement}", path: #{plugin_path.inspect}
+        #{dummy_plugin}
+        return unless Plugin.loaded?("bundler-multilock")
+
+        gem "rake", "13.2.1"
+      RUBY
+      File.write("other/Gemfile", other_gemfile)
+      invoke_bundler("install")
+
+      env = { "BUNDLE_LOCKFILE" => "other/Gemfile.lock" }
+      expect(invoke_bundler("list", env:)).not_to include("more than once")
+      expect(File.read("other/Gemfile.lock"))
+        .to include("    bundler-multilock (#{Bundler::Multilock::VERSION})", "    dummy-plugin (0.0.1)")
+
+      # it still warns if that Gemfile declares one of them a second time
+      File.write("other/Gemfile", other_gemfile.sub(%(gem "rake"), %(#{dummy_plugin}\ngem "rake")))
+      expect(invoke_bundler("list", env:)).to include("lists the gem dummy-plugin (>= 0) more than once")
+
+      # and it still fails if the declarations don't match exactly
+      File.write("other/Gemfile", other_gemfile.sub(dummy_plugin, dummy_plugin.sub("path:", %("= 0.0.1", path:))))
+      expect { invoke_bundler("list", env:) }
+        .to raise_error(/cannot specify the same gem twice with different version requirements/)
+    end
+  end
+
+  it "syncs a plugin declared in both Gemfiles to the other Gemfile's lockfile" do
+    with_gemfile(<<~RUBY) do
+      lockfile("other/Gemfile.lock", gemfile: "other/Gemfile")
+    RUBY
+      FileUtils.mkdir_p("other")
+      File.write("other/Gemfile", <<~RUBY)
+        source "https://rubygems.org"
+
+        plugin "bundler-multilock", "#{plugin_requirement}", path: #{plugin_path.inspect}
+        return unless Plugin.loaded?("bundler-multilock")
+
+        gem "rake", "13.2.1"
+      RUBY
+      invoke_bundler("install")
+      expect(File.read("other/Gemfile.lock")).to include("    bundler-multilock (#{Bundler::Multilock::VERSION})")
+
+      # as if the other Gemfile's lockfile was created before it declared the plugin
+      lockfile = File.read("other/Gemfile.lock")
+                     .sub(/^PATH\n  remote: [^\n]*\n  specs:\n    bundler-multilock .*?\n\n/m, "")
+                     .gsub(/^  bundler-multilock .*\n/, "")
+      File.write("other/Gemfile.lock", lockfile)
+      expect(File.read("other/Gemfile.lock")).not_to include("bundler-multilock")
+      # (removing the plugin also removed its source)
+      expect { invoke_bundler("check") }
+        .to raise_error(%r{The sources in other/Gemfile.lock do not match other/Gemfile.\n  Only in other/Gemfile: })
+
+      invoke_bundler("install")
+      expect(File.read("other/Gemfile.lock")).to include("    bundler-multilock (#{Bundler::Multilock::VERSION})")
+      invoke_bundler("check")
+    end
+  end
+
   it "maintains consistency across local gem's lockfiless when one is included in the other" do
     with_gemfile(<<~RUBY) do
       lockfile("local_test/Gemfile.lock",
@@ -343,6 +352,9 @@ describe "Bundler::Multilock" do
 
   it "syncs from a parent lockfile" do
     with_gemfile(<<~RUBY) do
+      # activesupport 6.0 requires minitest 5
+      gem "minitest", "~> 5.1"
+
       lockfile do
         gem "activesupport", "~> 6.1.0"
       end
@@ -579,15 +591,65 @@ describe "Bundler::Multilock" do
     RUBY
       invoke_bundler("install")
 
-      invoke_bundler("lock --add-platform java")
+      # (a platform that isn't the current one, which can't be removed)
+      invoke_bundler("lock --add-platform x64-mingw-ucrt")
 
       invoke_bundler("install")
-      expect(File.read("Gemfile.full.lock")).to include("java")
+      expect(File.read("Gemfile.full.lock")).to include("x64-mingw-ucrt")
 
-      invoke_bundler("lock --remove-platform java")
+      invoke_bundler("lock --remove-platform x64-mingw-ucrt")
 
       invoke_bundler("install")
-      expect(File.read("Gemfile.full.lock")).not_to include("java")
+      expect(File.read("Gemfile.full.lock")).not_to include("x64-mingw-ucrt")
+    end
+  end
+
+  it "syncs lockfiles with `bundle lock` when gems aren't installed" do
+    with_gemfile("") do
+      # install the plugin (`bundle lock` won't), but keep gems isolated so
+      # that nothing in the Gemfile is installed
+      use_local_bundle_path
+      invoke_bundler("install")
+
+      write_gemfile(<<~RUBY)
+        gem "concurrent-ruby", "1.2.2"
+
+        lockfile do
+        end
+
+        lockfile "alt" do
+          gem "rake", "13.2.1"
+        end
+      RUBY
+
+      invoke_bundler("lock")
+      expect(File.read("Gemfile.lock")).to include("concurrent-ruby (1.2.2)")
+      expect(File.read("Gemfile.alt.lock")).to include("concurrent-ruby (1.2.2)")
+      expect(File.read("Gemfile.alt.lock")).to include("rake (13.2.1)")
+
+      # adding a gem only to the alternate lockfile still syncs
+      write_gemfile(<<~RUBY)
+        gem "concurrent-ruby", "1.2.2"
+
+        lockfile do
+        end
+
+        lockfile "alt" do
+          gem "rake", "13.2.1"
+          gem "rack", "3.1.8"
+        end
+      RUBY
+      invoke_bundler("lock")
+      expect(File.read("Gemfile.alt.lock")).to include("rack (3.1.8)")
+
+      # and a frozen `bundle lock` is happy with it (the local config would
+      # override BUNDLE_FROZEN)
+      invoke_bundler("config set --local frozen true")
+      invoke_bundler("lock")
+      invoke_bundler("config set --local frozen false")
+
+      # it's still not installed
+      expect { invoke_bundler("check") }.to raise_error(/The following gems are missing/)
     end
   end
 
@@ -603,12 +665,16 @@ describe "Bundler::Multilock" do
         gem "concurrent-ruby", "1.2.1"
       end
     RUBY
+      # keep this isolated from installed gems, so that uninstalling is reliable
+      use_local_bundle_path
       invoke_bundler("install")
-      Bundler.with_unbundled_env do
-        `gem uninstall concurrent-ruby -v 1.2.1 2> #{File::NULL}`
-      end
+
+      uninstall_local_gem("concurrent-ruby", "1.2.1")
+      expect { invoke_bundler("check", env: { "BUNDLE_LOCKFILE" => "alt1" }) }
+        .to raise_error(/The following gems are missing.*concurrent-ruby \(1\.2\.1\)/m)
+
       invoke_bundler("install")
-      invoke_bundler("info concurrent-ruby", env: { "BUNDLE_LOCKFILE" => "alt1" })
+      expect(invoke_bundler("info concurrent-ruby", env: { "BUNDLE_LOCKFILE" => "alt1" })).to include("1.2.1")
     end
   end
 
@@ -626,6 +692,13 @@ describe "Bundler::Multilock" do
   end
 
   it "doesn't break env" do
+    if Gem::Version.new(Gem::VERSION) < Gem::Version.new("4.1.0.beta2")
+      # Bundler 4.1 writes empty hashes as `{}` in the plugin index, but `bundle env`
+      # loads the older RubyGems YAMLSerializer first, which reads them as strings.
+      # This affects any plugin, not just this one.
+      pending "Bundler 4.1 can't read its plugin index during `bundle env` with RubyGems < 4.1"
+    end
+
     with_gemfile(<<~RUBY) do
       gem "rake"
 
@@ -653,10 +726,88 @@ describe "Bundler::Multilock" do
       invoke_bundler("binstub rake")
       Bundler.with_unbundled_env do
         ENV["BUNDLE_LOCKFILE"] = "alt2"
-        expect(`bin/rake -v 2>&1`).to match(/Could not locate lockfile "alt2"/)
+        expect(`bin/rake -v 2>&1`).to include('Could not locate lockfile "alt2"')
       ensure
         ENV.delete("BUNDLE_LOCKFILE")
       end
+    end
+  end
+
+  it "uses BUNDLE_LOCKFILE as a plain path when no lockfiles are defined" do
+    with_gemfile(<<~RUBY) do
+      gem "concurrent-ruby", "1.2.2"
+    RUBY
+      invoke_bundler("install", env: { "BUNDLE_LOCKFILE" => "custom" })
+
+      expect(File.read("custom")).to include("concurrent-ruby (1.2.2)")
+      expect(File).not_to exist("Gemfile.custom.lock")
+    end
+  end
+
+  it "treats an absolute BUNDLE_LOCKFILE as a path, even without a .lock suffix" do
+    with_gemfile(<<~RUBY) do
+      lockfile do
+        gem "concurrent-ruby", "1.2.2"
+      end
+
+      lockfile "./custom" do
+        gem "concurrent-ruby", "1.3.4"
+      end
+
+      lockfile "custom" do
+        gem "concurrent-ruby", "1.3.3"
+      end
+    RUBY
+      invoke_bundler("install")
+
+      expect(invoke_bundler("info concurrent-ruby", env: { "BUNDLE_LOCKFILE" => File.expand_path("custom") }))
+        .to include("1.3.4")
+      expect(invoke_bundler("info concurrent-ruby", env: { "BUNDLE_LOCKFILE" => "custom" })).to include("1.3.3")
+    end
+  end
+
+  it "uses the active lockfile in commands nested inside `bundle exec`" do
+    with_gemfile(<<~RUBY) do
+      lockfile active: false do
+        gem "concurrent-ruby", "1.2.2"
+      end
+
+      lockfile "alt", active: true do
+        gem "concurrent-ruby", "1.3.4"
+      end
+    RUBY
+      invoke_bundler("install")
+      lockfiles = %w[Gemfile.lock Gemfile.alt.lock].to_h { |lockfile| [lockfile, File.read(lockfile)] }
+
+      # the nested commands inherit the environment that `bundle exec` sets up
+      # (including BUNDLE_LOCKFILE), instead of a clean one
+      expect(invoke_bundler(%(exec ruby -e 'require "concurrent/version"; puts Concurrent::VERSION')))
+        .to include("1.3.4")
+      expect(invoke_bundler("exec #{bundler_bin} info concurrent-ruby")).to include("1.3.4")
+
+      # in the same process, and a separate one
+      invoke_bundler("exec #{bundler_bin} install")
+      invoke_bundler("exec env #{bundler_bin} install")
+      expect(lockfiles.keys.to_h { |lockfile| [lockfile, File.read(lockfile)] }).to eq lockfiles
+    end
+  end
+
+  it "respects BUNDLE_LOCKFILE in a bundler command nested inside `bundle exec`" do
+    with_gemfile(<<~RUBY) do
+      lockfile do
+        gem "concurrent-ruby", "1.2.2"
+      end
+
+      lockfile "alt" do
+        gem "concurrent-ruby", "1.3.4"
+      end
+    RUBY
+      invoke_bundler("install")
+
+      # the nested commands inherit the environment that `bundle exec` sets up
+      # (including BUNDLE_LOCKFILE), instead of a clean one
+      expect(invoke_bundler("exec #{bundler_bin} info concurrent-ruby")).to include("1.2.2")
+      expect(invoke_bundler("exec env BUNDLE_LOCKFILE=alt #{bundler_bin} info concurrent-ruby")).to include("1.3.4")
     end
   end
 
@@ -674,11 +825,6 @@ describe "Bundler::Multilock" do
 
   # so that it won't downgrade if that's all you have available
   it "installs missing deps from alternate lockfiles before syncing" do
-    Bundler.with_unbundled_env do
-      `gem uninstall activemodel -a --force 2> #{File::NULL}`
-      `gem install activemodel -s https://rubygems.org -v 6.1.7.6`
-    end
-
     with_gemfile(<<~RUBY) do
       lockfile do
         gem "activemodel", ">= 6.0"
@@ -688,19 +834,45 @@ describe "Bundler::Multilock" do
         gem "activemodel", "~> 6.1.0"
       end
     RUBY
+      # keep this isolated from installed gems, so that the only activemodel
+      # available locally is the one we install here
+      use_local_bundle_path
+      install_local_gem("activemodel", "6.1.7.6")
+
       invoke_bundler("install --local")
       expect(invoke_bundler("info activesupport", env: { "BUNDLE_LOCKFILE" => "rails-6.1" })).to include("6.1.7.6")
 
-      Bundler.with_unbundled_env do
-        `gem uninstall activemodel -v 6.1.7.6 --force 2> #{File::NULL}`
-        `gem install activemodel -s https://rubygems.org -v 6.1.6`
-      end
+      uninstall_local_gem("activemodel", "6.1.7.6")
+      install_local_gem("activemodel", "6.1.6")
 
       expect { invoke_bundler("check") }.to raise_error(/The following gems are missing/)
       invoke_bundler("install")
 
       # it should have re-installed 6.1.7.6, leaving the lockfile alone
       expect(invoke_bundler("info activemodel", env: { "BUNDLE_LOCKFILE" => "rails-6.1" })).to include("6.1.7.6")
+    end
+  end
+
+  it "doesn't warn about scoped sources when syncing" do
+    with_gemfile(<<~RUBY) do
+      source "https://gem.coop" do
+        gem "rake", "13.2.1"
+      end
+
+      lockfile do
+        gem "concurrent-ruby", "1.2.2"
+      end
+
+      lockfile "alt" do
+        gem "concurrent-ruby", "1.3.4"
+      end
+    RUBY
+      expect(invoke_bundler("install")).not_to include("dependency API")
+
+      replace_string("Gemfile", '"1.3.4"', '"1.3.5"')
+      output = invoke_bundler("install")
+      expect(output).to include("Syncing to Gemfile.alt.lock")
+      expect(output).not_to include("dependency API")
     end
   end
 
@@ -741,6 +913,9 @@ describe "Bundler::Multilock" do
 
   it "does not re-sync lockfiles that have conflicting sub-dependencies" do
     with_gemfile(<<~RUBY) do
+      # activesupport 6.0 requires minitest 5
+      gem "minitest", "~> 5.1"
+
       lockfile do
         gem "activemodel", "~> 6.1.0"
       end
@@ -864,7 +1039,8 @@ describe "Bundler::Multilock" do
       invoke_bundler("install")
 
       write_gemfile(<<~RUBY)
-        gem 'datadog', '~> 2.10.0'
+        # the oldest version that supports Ruby 4.0, and with a different libdatadog than the latest
+        gem 'datadog', '~> 2.24.0'
 
         lockfile do
           gem "activesupport", "~> 6.0.0"
@@ -876,28 +1052,24 @@ describe "Bundler::Multilock" do
       RUBY
 
       FileUtils.cp("Gemfile.rails-6.1.lock", "Gemfile.rails-6.1.lock.orig")
-      # roll back to ddtrace 1.20.0
+      # roll back to datadog 2.24.0
       invoke_bundler("install")
 
-      # loosen the requirement to allow > 1.20, but with it locked to
-      # 1.12. But act like the alternate lockfile didn't get updated
+      # loosen the requirement to allow > 2.24, but with it locked to
+      # 2.24. But act like the alternate lockfile didn't get updated
       write_gemfile(orig_gemfile)
       FileUtils.cp("Gemfile.rails-6.1.lock.orig", "Gemfile.rails-6.1.lock")
 
       # now a plain install should sync the alternate lockfile, rolling it back too
       invoke_bundler("install")
 
-      expect(invoke_bundler("info datadog")).to include("2.10.0")
-      expect(invoke_bundler("info datadog", env: { "BUNDLE_LOCKFILE" => "rails-6.1" })).to include("2.10.0")
+      expect(invoke_bundler("info datadog")).to include("2.24.0")
+      expect(invoke_bundler("info datadog", env: { "BUNDLE_LOCKFILE" => "rails-6.1" })).to include("2.24.0")
     end
   end
 
   it "syncs gems whose platforms changed slightly" do
-    if RUBY_VERSION < "3.0"
-      skip "The test case that triggers this requires Ruby 3.0+; " \
-           "just rely on this test running on other ruby versions"
-    end
-    skip "Modern bundler is required on modern Ruby for this test." if RUBY_VERSION >= "3.4" && Bundler::VERSION < "2.5"
+    skip "sqlite3 is a C extension, which JRuby can't build" if RUBY_ENGINE == "jruby"
 
     with_gemfile(<<~RUBY) do
       gem "sqlite3", "~> 1.7"
@@ -962,10 +1134,22 @@ describe "Bundler::Multilock" do
 
   it "ignores installation errors when an alternate lockfile specifies a gem " \
      "version incompatible with the current ruby" do
+    # These gems only have a single (ruby) platform with an upper bound on the ruby
+    # version, so there's no compatible variant for bundler to fall back to. The first
+    # version is compatible with the current ruby, and the second is not.
+    gem_name, version, incompatible_version = case RUBY_VERSION
+                                              when "4.0"..."4.1" then %w[datadog 2.24.0 2.23.0]
+                                              when "3.4"..."3.5" then %w[datadog 2.2.0 2.1.0]
+                                              when "3.3"..."3.4" then %w[ddtrace 1.13.1 1.12.1]
+                                              when "3.2"..."3.3" then %w[ddtrace 1.13.1 0.54.2]
+                                              else raise "Pick gem versions for ruby #{RUBY_VERSION}"
+                                              end
+    # the profiling native extension isn't relevant here, and can fail to build
+    # (e.g. when debase-ruby_core_source doesn't have headers for this exact ruby)
+    env = { "DD_PROFILING_NO_EXTENSION" => "true" }
+
     with_gemfile(<<~RUBY) do
-      # needs to be pinned to 1.17.2, because nokogiri changed the supported linux platforms in 1.18.0
-      # from x86_64-linux to x86_64-linux-gnu and x86_64-linux-musl
-      gem "nokogiri", "1.17.2"
+      gem "#{gem_name}", "#{version}"
 
       lockfile do
       end
@@ -973,31 +1157,25 @@ describe "Bundler::Multilock" do
       lockfile "alt" do
       end
     RUBY
-      invoke_bundler("install")
+      # keep this isolated from installed gems; otherwise bundler will just
+      # re-resolve to a compatible version that happens to be installed
+      use_local_bundle_path
+      invoke_bundler("install", env:)
+      FileUtils.rm_rf(local_gem_dir)
 
-      # Transform this back into an unpinned nokogiri otherwise bundler won't think
+      # Transform this back into an unpinned gem otherwise bundler won't think
       # the incompatible version needs to be installed
-      replace_string("Gemfile", "gem \"nokogiri\", \"1.17.2\"", "gem \"nokogiri\"")
-      replace_string("Gemfile.lock", "nokogiri (= 1.17.2)", "nokogiri")
-      replace_string("Gemfile.alt.lock", "nokogiri (= 1.17.2)", "nokogiri")
+      replace_string("Gemfile", "gem \"#{gem_name}\", \"#{version}\"", "gem \"#{gem_name}\"")
+      replace_string("Gemfile.lock", "#{gem_name} (= #{version})", gem_name)
+      replace_string("Gemfile.alt.lock", "#{gem_name} (= #{version})", gem_name)
 
-      incompatible_nokogiri_version = case RUBY_VERSION
-                                      when ("3.3"..)
-                                        "1.15.6"
-                                      when ("3.0"..)
-                                        skip "There isn't a recent nokogiri version incompatible " \
-                                             "with this version of ruby; just rely on this test " \
-                                             "running on other ruby versions"
-                                      else
-                                        "1.16.0"
-                                      end
+      replace_lockfile_pin("Gemfile.lock", gem_name, incompatible_version)
+      replace_lockfile_pin("Gemfile.alt.lock", gem_name, incompatible_version)
 
-      replace_lockfile_pin("Gemfile.lock", "nokogiri", incompatible_nokogiri_version)
-      replace_lockfile_pin("Gemfile.alt.lock", "nokogiri", incompatible_nokogiri_version)
+      expect { invoke_bundler("check") }
+        .to raise_error(/The following gems are missing.*#{gem_name} \(#{Regexp.escape(incompatible_version)}\)/m)
 
-      expect { invoke_bundler("check") }.to raise_error(/The following gems are missing/)
-
-      invoke_bundler("install")
+      invoke_bundler("install", env:)
     end
   end
 
@@ -1011,6 +1189,56 @@ describe "Bundler::Multilock" do
     end
   end
 
+  it "allows an alternate lockfile to have additional sources" do
+    with_gemfile("") do
+      create_local_gem("git_gem")
+      Dir.chdir("git_gem") do
+        `git init -q && git add . && git -c user.email=spec@example.com -c user.name=spec commit -qm initial`
+      end
+      write_gemfile(<<~RUBY)
+        gem "concurrent-ruby", "1.2.2"
+
+        lockfile "alt" do
+          gem "git_gem", git: #{File.expand_path("git_gem").inspect}
+        end
+      RUBY
+      invoke_bundler("install")
+      expect(File.read("Gemfile.alt.lock")).to include("GIT\n")
+      expect(File.read("Gemfile.lock")).not_to include("GIT\n")
+
+      expect(invoke_bundler("install")).not_to include("Syncing")
+      expect(invoke_bundler("check")).not_to include("do not match")
+      expect(invoke_bundler("check", env: { "BUNDLE_LOCKFILE" => "alt" })).not_to include("do not match")
+    end
+  end
+
+  it "fixes an alternate lockfile whose git source doesn't match the Gemfile's" do
+    with_gemfile("") do
+      create_local_gem("git_gem")
+      Dir.chdir("git_gem") do
+        `git init -q && git add . && git -c user.email=spec@example.com -c user.name=spec commit -qm initial`
+      end
+      repo = File.expand_path("git_gem")
+      write_gemfile(<<~RUBY)
+        gem "git_gem", git: #{repo.inspect}
+
+        lockfile "alt" do
+        end
+      RUBY
+      invoke_bundler("install")
+
+      # the same repository, but written differently (which Bundler treats as a
+      # different source, and hasn't checked out)
+      replace_string("Gemfile.alt.lock", "remote: #{repo}\n", "remote: file://#{repo}\n")
+      expect { invoke_bundler("check") }
+        .to raise_error(/The sources in Gemfile.alt.lock do not match Gemfile.\n  Only in Gemfile.alt.lock: file:/)
+
+      invoke_bundler("install")
+      expect(File.read("Gemfile.alt.lock")).to include("remote: #{repo}\n")
+      invoke_bundler("check")
+    end
+  end
+
   it "syncs git sources that have updated" do
     with_gemfile(<<~RUBY) do
       gem "rspecq", github: "instructure/rspecq"
@@ -1019,135 +1247,14 @@ describe "Bundler::Multilock" do
       end
     RUBY
       invoke_bundler("install")
-      replace_lockfile_git_pin("d7fa5536da01cccb5109ba05c9e236d6660da593")
+      # an older commit, but with the same version as main
+      replace_lockfile_git_pin("b32030382a6eb14a691f355efcaa037d45394859")
       invoke_bundler("install")
 
-      expect(invoke_bundler("info rspecq")).to include("d7fa553")
+      expect(invoke_bundler("info rspecq")).to include("b320303")
 
       invoke_bundler("update rspecq")
-      expect(invoke_bundler("info rspecq")).not_to include("d7fa553")
+      expect(invoke_bundler("info rspecq")).not_to include("b320303")
     end
-  end
-
-  private
-
-  def create_local_gem(name, content = "", subdirectory: true)
-    if subdirectory
-      FileUtils.mkdir_p(name)
-      subdirectory = "#{name}/"
-    else
-      subdirectory = nil
-    end
-    File.write("#{subdirectory}#{name}.gemspec", <<~RUBY)
-      Gem::Specification.new do |spec|
-        spec.name          = #{name.inspect}
-        spec.version       = "0.0.1"
-        spec.authors       = ["Instructure"]
-        spec.summary       = "for testing only"
-
-        #{content}
-      end
-    RUBY
-
-    return unless subdirectory
-
-    File.write("#{name}/Gemfile", <<~RUBY)
-      source "https://rubygems.org"
-
-      gemspec
-    RUBY
-  end
-
-  # creates a new temporary directory, writes the gemfile to it, and yields
-  #
-  # @param (see #write_gemfile)
-  # @yield
-  def with_gemfile(content = nil)
-    Dir.mktmpdir do |dir|
-      Dir.chdir(dir) do
-        write_gemfile(content)
-
-        invoke_bundler("config frozen false")
-
-        yield
-      end
-    end
-  end
-
-  # @param content [String]
-  #   Ruby code to set up lockfiles by calling `lockfile`.
-  def write_gemfile(content)
-    raise ArgumentError, "Did you mean to use `with_gemfile`?" if block_given?
-
-    File.write("Gemfile", <<~RUBY)
-      source "https://rubygems.org"
-
-      plugin "bundler-multilock", "~> 1.2", path: #{File.expand_path("../..", __dir__).inspect}
-      return unless Plugin.installed?("bundler-multilock")
-
-      Plugin.send(:load_plugin, "bundler-multilock")
-
-      #{content}
-    RUBY
-  end
-
-  # Shells out to a new instance of bundler, with a clean bundler env
-  #
-  # @param subcommand [String] Args to pass to bundler
-  # @raise [RuntimeError] if the bundle command fails
-  def invoke_bundler(subcommand, env: {}, allow_failure: false)
-    output = nil
-    bundler_version = ENV.fetch("BUNDLER_VERSION")
-    bin = begin
-      Gem.bin_path("bundler", "bundler", bundler_version)
-    rescue Gem::Exception
-      "bundler"
-    end
-    command = "#{bin} #{subcommand}"
-    Bundler.with_unbundled_env do
-      output, status = Open3.capture2e(env, command)
-
-      raise "bundle #{subcommand} failed: #{output}" unless allow_failure || status.success?
-    end
-    output
-  end
-
-  # Directly modifies a lockfile to adjust the version of a gem
-  #
-  # Useful for simulating certain unusual situations that can arise.
-  #
-  # @param lockfile [String] The lockfile's location
-  # @param gem [String] The gem's name
-  # @param version [String] The new version to "pin" the gem to
-  def replace_lockfile_pin(lockfile, gem, version)
-    new_contents = File.read(lockfile).gsub(%r{#{gem} \([0-9a-z.]+((?:-[a-z0-9_]+)*)\)}, "#{gem} (#{version}\\1)")
-
-    File.write(lockfile, new_contents)
-  end
-
-  def replace_lockfile_git_pin(revision)
-    new_contents = File.read("Gemfile.lock").gsub(/revision: [0-9a-f]+/, "revision: #{revision}")
-
-    File.write("Gemfile.lock", new_contents)
-  end
-
-  def replace_string(lockfile, old_string, new_string)
-    new_contents = File.read(lockfile).gsub(old_string, new_string)
-
-    File.write(lockfile, new_contents)
-  end
-
-  def update_lockfile_bundler(lockfile, version)
-    new_contents = File.read(lockfile).gsub(/BUNDLED WITH\n   [0-9.]+/, "BUNDLED WITH\n  #{version}")
-
-    File.write(lockfile, new_contents)
-  end
-
-  def update_lockfile_ruby(lockfile, version)
-    old_contents = File.read(lockfile)
-    new_version = version ? "RUBY VERSION\n   #{version}\n\n" : ""
-    new_contents = old_contents.gsub(/RUBY VERSION\n   #{Bundler::RubyVersion::PATTERN}\n\n/o, new_version)
-
-    File.write(lockfile, new_contents)
   end
 end

@@ -19,7 +19,13 @@ module Bundler
         def default_lockfile(force_original: false)
           return @default_lockfile if @default_lockfile && !force_original
 
-          super()
+          # Multilock handles BUNDLE_LOCKFILE itself
+          env_lockfile = ENV.delete("BUNDLE_LOCKFILE")
+          begin
+            super()
+          ensure
+            ENV["BUNDLE_LOCKFILE"] = env_lockfile if env_lockfile
+          end
         end
 
         def with_default_lockfile(lockfile)

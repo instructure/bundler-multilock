@@ -13,11 +13,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ruby-version: [3.1, 3.2, 3.3, 3.4]
-        bundler-version: [2.4.19, 2.4.22, 2.5.23, 2.6.7]
+        ruby-version: [3.2, 3.3, 3.4, "4.0", "jruby-10.0", "jruby-10.1"]
+        bundler-version: [4.1.0.beta2]
     env:
       BUNDLER_VERSION: ${{ matrix.bundler-version }}
       BUNDLE_LOCKFILE: active
+      # faster startup for the many short-lived bundler processes the specs run
+      JRUBY_OPTS: --dev
     steps:
       - uses: actions/checkout@v4
       - name: Set up Ruby
@@ -40,8 +42,9 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: 3.1
+          ruby-version: 3.2
           bundler-cache: true
+          bundler: 4.1.0.beta2
           rubygems: latest
       - name: Run RuboCop
         run: bin/rubocop

@@ -3,11 +3,11 @@
 require_relative "multilock/ext/bundler"
 require_relative "multilock/ext/definition"
 require_relative "multilock/ext/dsl"
-require_relative "multilock/ext/plugin"
 require_relative "multilock/ext/plugin/dsl"
 require_relative "multilock/ext/shared_helpers"
 require_relative "multilock/ext/source"
 require_relative "multilock/ext/source_list"
+require_relative "multilock/preamble"
 require_relative "multilock/version"
 
 module Bundler
@@ -33,22 +33,13 @@ module Bundler
       # @yield
       #   Block executed only when this lockfile is active.
       # @return [true, false] if the lockfile is the active lockfile
-      def add_lockfile(lockfile = nil,
+      def add_lockfile(lockfile = nil, # rubocop:disable Naming/PredicateMethod -- not a predicate
                        builder:,
                        gemfile: nil,
                        active: nil,
-                       default: nil,
                        parent: nil,
-                       allow_mismatched_dependencies: nil,
                        enforce_pinned_additional_dependencies: false,
                        &block)
-        # backcompat
-        active = default if active.nil?
-        Bundler.ui.warn("lockfile(default:) is deprecated. Use lockfile(active:) instead.") if default
-        unless allow_mismatched_dependencies.nil?
-          Bundler.ui.warn("lockfile(allow_mismatched_dependencies:) is deprecated.")
-        end
-
         active = true if active.nil? && lockfile_definitions.empty? && lockfile.nil? && gemfile.nil?
 
         # if a gemfile was provided, but not a lockfile, infer the default lockfile for that gemfile
@@ -58,9 +49,11 @@ module Bundler
 
         raise ArgumentError, "Lockfile #{lockfile} is already defined" if lockfile_definitions.key?(lockfile)
 
-        env_lockfile = lockfile if active && ENV["BUNDLE_LOCKFILE"] == "active"
-        env_lockfile ||= ENV["BUNDLE_LOCKFILE"]&.then { |l| expand_lockfile(l) }
-        active = env_lockfile == lockfile if env_lockfile
+        env_lockfile_names = self.env_lockfile_names
+        unless env_lockfile_names.empty?
+          active = (active && env_lockfile_names.include?("active")) ||
+                   env_lockfile_names.any? { |name| expand_lockfile(name) == lockfile }
+        end
 
         if active && (old_active = lockfile_definitions.each_value.find { |definition| definition[:active] })
           raise ArgumentError, "Only one lockfile (#{old_active[:lockfile]}) can be flagged as active"
@@ -85,8 +78,8 @@ module Bundler
         # If they're using BUNDLE_LOCKFILE, then they really do want to
         # use a particular lockfile, and it overrides whatever they
         # dynamically set in their gemfile
-        if !env_lockfile && defined?(CLI) &&
-           %i[check install lock update].include?(CLI.instance&.current_command_chain&.first)
+        if env_lockfile_names.empty? &&
+           %i[check install lock update].include?(cli&.current_command_chain&.first)
           # always use Gemfile.lock for `bundle check`, `bundle install`,
           # `bundle lock`, and `bundle update`.
           active = lockfile == Bundler.default_lockfile(force_original: true)
@@ -105,6 +98,8 @@ module Bundler
             Bundler.root = Bundler.default_gemfile.dirname
             Bundler.default_lockfile = lockfile
 
+            # that Gemfile should declare its plugins too, but they may already be declared
+            builder.allow_duplicate_plugins_in(Bundler.default_gemfile)
             builder.eval_gemfile(Bundler.default_gemfile)
 
             return false
@@ -119,7 +114,7 @@ module Bundler
         previous_recursive = @recursive
 
         return if lockfile_definitions.empty?
-        return if ENV["BUNDLE_LOCKFILE"] # explicitly working against a single lockfile
+        return if env_lockfile # explicitly working against a single lockfile
 
         # must be running `bundle cache`
         return unless Bundler.default_lockfile == Bundler.default_lockfile(force_original: true)
@@ -128,7 +123,8 @@ module Bundler
 
         if Bundler.frozen_bundle? && !install
           # only do the checks if we're frozen
-          exit 1 unless Check.run
+          # `bundle lock` doesn't install anything
+          exit 1 unless Check.new(check_installed: false).run
           return
         end
 
@@ -149,7 +145,7 @@ module Bundler
         default_root = Bundler.root
 
         cache = Cache.new
-        checker = Check.new(cache)
+        checker = Check.new(cache, check_installed: install)
         synced_any = false
         local_parser_cache = {}
         Bundler.settings.temporary(cache_all_platforms: true, suppress_install_using_messages: true) do
@@ -279,12 +275,6 @@ module Bundler
                 end
 
                 lockfile.platforms.replace(parent_lockfile.platforms).uniq!
-                # prune more specific platforms
-                lockfile.platforms.delete_if do |p1|
-                  lockfile.platforms.any? do |p2|
-                    p2 != "ruby" && p1 != p2 && MatchPlatform.platforms_match?(p2, p1)
-                  end
-                end
                 lockfile.instance_variable_set(:@ruby_version, parent_lockfile.ruby_version) if lockfile.ruby_version
                 unless lockfile.bundler_version == parent_lockfile.bundler_version
                   unlocking_bundler = parent_lockfile.bundler_version
@@ -342,16 +332,21 @@ module Bundler
         return if loaded?
 
         @loaded = true
-        return if lockfile_definitions.empty?
-
-        return unless lockfile_definitions.each_value.none? { |definition| definition[:active] }
-
-        if ENV["BUNDLE_LOCKFILE"]&.then { |l| expand_lockfile(l) } ==
-           Bundler.default_lockfile(force_original: true)
+        if lockfile_definitions.empty?
+          # nothing for Multilock to manage; use BUNDLE_LOCKFILE as a plain path, like Bundler would
+          if env_lockfile && !env_lockfile_names.include?("active")
+            Bundler.default_lockfile = Pathname.new(File.expand_path(env_lockfile))
+          end
           return
         end
 
-        raise GemfileNotFound, "Could not locate lockfile #{ENV["BUNDLE_LOCKFILE"].inspect}" if ENV["BUNDLE_LOCKFILE"]
+        return unless lockfile_definitions.each_value.none? { |definition| definition[:active] }
+
+        if env_lockfile_names.any? { |name| expand_lockfile(name) == Bundler.default_lockfile(force_original: true) }
+          return
+        end
+
+        raise GemfileNotFound, "Could not locate lockfile #{env_lockfile.inspect}" if env_lockfile
 
         # Gemfile.lock isn't explicitly specified, otherwise it would be active
         default_lockfile_definition = self.default_lockfile_definition
@@ -366,55 +361,41 @@ module Bundler
       end
 
       # @!visibility private
-      def inject_preamble
-        Bundler.ui.debug("Injecting multilock preamble")
+      # The BUNDLE_LOCKFILE the user asked for, if any, as close as possible to
+      # how they wrote it
+      def env_lockfile
+        env_lockfile_and_recovered&.first
+      end
 
-        minor_version = Gem::Version.new(::Bundler::Multilock::VERSION).segments[0..1].join(".")
-        bundle_preamble1_match = /plugin ["']bundler-multilock["']/
-        bundle_preamble1 = <<~RUBY
-          plugin "bundler-multilock", "~> #{minor_version}"
-        RUBY
-        bundle_preamble2 = <<~RUBY
-          return unless Plugin.installed?("bundler-multilock")
+      # @!visibility private
+      # What BUNDLE_LOCKFILE could have been written as; usually just one
+      # thing (see #env_lockfile_and_recovered)
+      #
+      # @return [Array<String>]
+      def env_lockfile_names
+        lockfile, recovered = env_lockfile_and_recovered
+        return [] unless lockfile
+        return [lockfile] if recovered
 
-          Plugin.send(:load_plugin, "bundler-multilock")
-        RUBY
+        # we can't tell if Bundler expanded a short name (or "active") to an
+        # absolute path, or if it was written that way, so allow either
+        relative = Pathname.new(lockfile).relative_path_from(Pathname.pwd).to_s
+        relative.include?("/") ? [lockfile] : [lockfile, relative]
+      end
 
-        gemfile = Bundler.default_gemfile.read
+      # @!visibility private
+      # @return [Bundler::CLI, nil] the bundler command that's running, if any
+      def cli
+        # Bundler autoloads its CLI, so it's only running if it's already loaded
+        # (and checking that the constant is defined doesn't tell us that)
+        return unless cli_loaded? && CLI.respond_to?(:instance)
 
-        injection_point = 0
-        while gemfile.match?(/^(?:#|\n|source)/, injection_point)
-          if gemfile[injection_point] == "\n"
-            injection_point += 1
-          else
-            injection_point = gemfile.index("\n", injection_point)
-            injection_point += 1 if injection_point
-            injection_point ||= -1
-          end
-        end
+        CLI.instance
+      end
 
-        builder = Bundler::Plugin::DSL.new
-        # this method is called as part of the plugin loading, but @loaded_plugin_names
-        # hasn't been set yet, so avoid re-entrancy issues
-        plugins = Bundler::Plugin.instance_variable_get(:@loaded_plugin_names)
-        original_plugins = plugins.dup
-        plugins << "bundler-multilock"
-        begin
-          builder.eval_gemfile(Bundler.default_gemfile)
-        ensure
-          plugins.replace(original_plugins)
-        end
-        gemfiles = builder.instance_variable_get(:@gemfiles).map(&:read)
-
-        modified = inject_specific_preamble(gemfile, gemfiles, injection_point, bundle_preamble2, add_newline: true)
-        modified = true if inject_specific_preamble(gemfile,
-                                                    gemfiles,
-                                                    injection_point,
-                                                    bundle_preamble1,
-                                                    match: bundle_preamble1_match,
-                                                    add_newline: false)
-
-        Bundler.default_gemfile.write(gemfile) if modified
+      # @!visibility private
+      def cli_loaded?
+        Bundler.autoload?(:CLI).nil? && !defined?(Bundler::CLI).nil?
       end
 
       # @!visibility private
@@ -430,6 +411,30 @@ module Bundler
 
       private
 
+      # @return [Array(String, true or false), nil]
+      #   BUNDLE_LOCKFILE, and if it's known to be exactly how the user wrote it
+      def env_lockfile_and_recovered
+        lockfile = ENV.fetch("BUNDLE_LOCKFILE", nil)
+        return if lockfile.nil? || lockfile.empty?
+        # not expanded by Bundler (yet)
+        return [lockfile, true] unless Pathname.new(lockfile).absolute?
+
+        # Bundler expands BUNDLE_LOCKFILE to an absolute path, relative to the
+        # current directory, but remembers the original value. That original
+        # is inherited by nested bundler commands though, so make sure it's
+        # actually the one that was expanded.
+        original = ENV.fetch("#{EnvironmentPreserver::BUNDLER_PREFIX}BUNDLE_LOCKFILE", nil)
+        if original == EnvironmentPreserver::INTENTIONALLY_NIL
+          # Bundler sets BUNDLE_LOCKFILE to the default lockfile for subprocesses
+          # when nobody asked for a particular lockfile
+          return if lockfile == Bundler.default_lockfile(force_original: true).to_s
+        elsif original && File.expand_path(original) == lockfile
+          return [original, true]
+        end
+
+        [lockfile, false]
+      end
+
       def expand_lockfile(lockfile)
         if lockfile.is_a?(String) && !(lockfile.include?("/") || lockfile.end_with?(".lock"))
           lockfile = "Gemfile.#{lockfile}.lock"
@@ -440,17 +445,49 @@ module Bundler
         lockfile || Bundler.default_lockfile(force_original: true)
       end
 
-      def inject_specific_preamble(gemfile, gemfiles, injection_point, preamble, add_newline:, match: nil)
-        # allow either type of quotes
-        match ||= Regexp.new(Regexp.escape(preamble).gsub('"', %(["'])))
-        return false if gemfiles.any? { |g| match.match?(g) }
+      # Gems resolved from what's installed locally don't have checksums. Copy
+      # them from the parent lockfile for gems in common (so that they match),
+      # or else compute them from cached gems (without fetching anything).
+      #
+      # @return [Array] specs that still don't have checksums
+      def fill_checksums(definition, parent_lockfile, cache)
+        return [] if Bundler.frozen_bundle? || !definition.locked_checksums
 
-        add_newline = false unless gemfile[injection_point - 1] == "\n"
+        require "rubygems/package"
 
-        gemfile.insert(injection_point, "\n") if add_newline
-        gemfile.insert(injection_point, preamble)
+        parent_specs = cache.parser(parent_lockfile).specs.to_h { |spec| [spec.full_name, spec] }
+        definition.resolve.select do |spec|
+          next false unless spec.source.is_a?(Source::Rubygems)
 
-        true
+          store = spec.source.checksum_store
+          if (parent_spec = parent_specs[spec.full_name]) &&
+             parent_spec.source == spec.source &&
+             (checksums = parent_spec.source.checksum_store.checksums_to_lock(spec.full_name))
+            checksums.split(",").each do |checksum|
+              store.replace(spec, Checksum.from_lock(checksum, parent_lockfile.to_s))
+            end
+          end
+          next false unless store.missing?(spec) || store.empty?(spec)
+
+          cached_gem = spec.source.cached_built_in_gem(spec, local: true)
+          store.register(spec, Checksum.from_gem_package(Gem::Package.new(cached_gem))) if cached_gem
+          store.missing?(spec) || store.empty?(spec)
+        end
+      end
+
+      # Resolves with only local gems. Bundler warns that scoped sources don't
+      # implement a dependency API when they're restricted to local gems, but
+      # that's expected here; if this fails, we resolve remotely instead.
+      def resolve_locally(definition)
+        definition.define_singleton_method(:non_dependency_api_warning) { nil }
+        definition.resolve_with_cache!
+      ensure
+        definition.singleton_class.remove_method(:non_dependency_api_warning)
+      end
+
+      # @return [true, false] if running with `--local`, so nothing should be fetched
+      def local_only?
+        cli&.options&.[]("local") ? true : false
       end
 
       def write_lockfile(lockfile_definition,
@@ -477,6 +514,16 @@ module Bundler
         definition = builder.to_definition(lockfile, { bundler: unlocking_bundler })
         definition.instance_variable_set(:@dependency_changes, dependency_changes) if dependency_changes
 
+        # match the parent lockfile in whether there are checksums
+        unless Bundler.frozen_bundle?
+          parent_checksums = cache.parser(lockfile_definition[:parent]).checksums
+          if parent_checksums && !definition.locked_checksums
+            definition.add_checksums
+          elsif !parent_checksums && definition.locked_checksums
+            definition.instance_variable_set(:@locked_checksums, false)
+          end
+        end
+
         current_lockfile = lockfile_definition[:lockfile]
         definition.instance_variable_set(:@lockfile_contents, current_lockfile.read) if current_lockfile.exist?
 
@@ -499,7 +546,7 @@ module Bundler
             # if something has changed, we skip this step; it's unlocking anyway
             next unless current_definition.no_resolve_needed?
 
-            current_definition.resolve_with_cache!
+            resolve_locally(current_definition)
             if current_definition.missing_specs.any?
               cache.invalidate_checks(current_lockfile)
               Bundler.with_default_lockfile(current_lockfile) do
@@ -532,16 +579,28 @@ module Bundler
             # in the lockfile (that we know are there from a prior remote
             # resolution), and add them to the locally installed spec list.
             definition.send(:source_map).locked_specs.each do |spec|
-              next if spec.match_platform(Bundler.local_platform)
+              next if spec.installable_on_platform?(Bundler.local_platform)
 
               spec.source.specs << spec
             end
-            definition.resolve_with_cache!
+            resolve_locally(definition)
+            missing_checksums = fill_checksums(definition, lockfile_definition[:parent], cache)
+            # fetch checksums that aren't available locally
+            raise SolveFailure unless missing_checksums.empty? || local_only?
           rescue GemNotFound, SolveFailure
+            raise if local_only?
+
             definition = orig_definition
 
             definition.resolve_remotely!
             resolved_remotely = true
+            missing_checksums = fill_checksums(definition, lockfile_definition[:parent], cache)
+          end
+          if local_only? && !missing_checksums.empty?
+            raise GemNotFound,
+                  "Could not find checksums for #{missing_checksums.map(&:full_name).join(", ")} " \
+                  "(for #{lockfile_definition[:lockfile].relative_path_from(Dir.pwd)}) locally. " \
+                  "Run without `--local` to fetch them."
           end
           SharedHelpers.capture_filesystem_access do
             definition.instance_variable_set(:@resolved_bundler_version, unlocking_bundler) if unlocking_bundler
@@ -549,12 +608,9 @@ module Bundler
             # need to force it to _not_ preserve unknown sections, so that it
             # will overwrite the ruby version
             definition.instance_variable_set(:@unlocking_bundler, true)
-            if Bundler.gem_version >= Gem::Version.new("2.5.6")
-              definition.instance_variable_set(:@lockfile, lockfile_definition[:lockfile])
-              definition.lock
-            else
-              definition.lock(lockfile_definition[:lockfile])
-            end
+            # not `lockfile=`, which may substitute the lockfile from BUNDLE_LOCKFILE
+            definition.instance_variable_set(:@lockfile, lockfile_definition[:lockfile])
+            definition.lock
           end
         ensure
           Bundler.ui.level = previous_ui_level
@@ -579,11 +635,9 @@ module Bundler
   end
 end
 
-# see https://github.com/rubygems/rubygems/pull/7368
-Bundler::LazySpecification.include(Bundler::MatchMetadata) if defined?(Bundler::MatchMetadata)
-Bundler::Multilock.inject_preamble unless Bundler::Multilock.loaded?
+Bundler::Multilock::Preamble.inject unless Bundler::Multilock.loaded?
 
-if defined?(Bundler::CLI)
+if Bundler::Multilock.cli_loaded?
   require_relative "multilock/ext/cli"
 
   # this is terrible, but we can't prepend into these modules because we only load
@@ -605,7 +659,13 @@ if defined?(Bundler::CLI)
       next unless $!.nil?
       next if $!.is_a?(SystemExit) && !$!.success?
 
-      Bundler::Multilock.after_install_all(install: false)
+      begin
+        Bundler::Multilock.after_install_all(install: false)
+      rescue Bundler::BundlerError => e
+        # this is outside of Bundler's usual error handling
+        Bundler.ui.error(e.message)
+        exit e.status_code
+      end
     end
   end
 end

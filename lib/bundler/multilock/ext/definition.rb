@@ -16,6 +16,13 @@ module Bundler
           super
         end
 
+        # `bundle install` sets the lockfile from BUNDLE_LOCKFILE, which Multilock handles itself
+        def lockfile=(lockfile)
+          lockfile = Bundler.default_lockfile if lockfile && lockfile.to_s == ENV.fetch("BUNDLE_LOCKFILE", nil)
+
+          super
+        end
+
         def validate_runtime!
           Multilock.loaded! unless Multilock.lockfile_definitions.empty?
 

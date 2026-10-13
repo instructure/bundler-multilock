@@ -20,6 +20,12 @@
 
 require_relative "lib/bundler/multilock"
 
+# Registering for this event makes Bundler load the plugin before it evaluates
+# the Gemfile, so `lockfile` is available without loading the plugin manually.
+Bundler::Plugin.add_hook(Bundler::Plugin::Events::GEM_BEFORE_EVAL) do |_gemfile, _lockfile|
+  # nothing to do; loading the plugin is all that's needed
+end
+
 Bundler::Plugin.add_hook(Bundler::Plugin::Events::GEM_AFTER_INSTALL_ALL) do |_|
   Bundler::Multilock.after_install_all
 end

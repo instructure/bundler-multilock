@@ -2,17 +2,11 @@
 
 source "https://rubygems.org"
 
-# Declare your gem's dependencies in broadcast_policy.gemspec.
-# Bundler will treat runtime dependencies like base dependencies, and
-# development dependencies will be added by default to the :development group.
-gemspec
-
+# Bundler adds plugins as regular dependencies, so this also takes the place of `gemspec`
 plugin "bundler-multilock", path: "."
-return unless Plugin.installed?("bundler-multilock")
+return unless Plugin.loaded?("bundler-multilock")
 
-Plugin.send(:load_plugin, "bundler-multilock")
-
-gem "debug", "~> 1.10", require: false
+gem "debug", "~> 1.10", require: false, platforms: :mri
 gem "gem-release", "~> 2.2", require: false
 gem "rake", "~> 13.2", require: false
 gem "rspec", "~> 3.13", require: false
