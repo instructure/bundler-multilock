@@ -38,6 +38,16 @@ module Bundler
         def locked_checksums
           checksums
         end
+
+        # Bundler 4.1 asks the definition about the lockfile it's replacing;
+        # here the adapted lockfile is both the old and the new one.
+        def locked_gems
+          __getobj__
+        end
+
+        def bundler_version_to_lock
+          bundler_version
+        end
       end
 
       private_constant :LockfileAdapter
