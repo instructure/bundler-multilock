@@ -36,6 +36,38 @@ describe Bundler::Multilock do
       end
     end
 
+    it "generates secondary lockfiles when the running bundler gem isn't cached" do
+      # A fresh CI build has no cached copy of bundler's .gem. Give bundler a
+      # private copy of itself that has no cache dir, without touching global gems.
+      bundler_spec = Gem::Specification.find_by_name("bundler", ENV.fetch("BUNDLER_VERSION"))
+
+      Dir.mktmpdir do |home|
+        FileUtils.mkdir_p(["#{home}/specifications", "#{home}/gems"])
+        FileUtils.cp(bundler_spec.loaded_from, "#{home}/specifications")
+        FileUtils.cp_r(bundler_spec.full_gem_path, "#{home}/gems")
+        allow(self).to receive(:bundler_bin).and_return("#{home}/gems/#{bundler_spec.full_name}/exe/bundle")
+        env = { "GEM_HOME" => home, "GEM_PATH" => ([home] + Gem.path).join(File::PATH_SEPARATOR) }
+
+        with_gemfile(<<~RUBY) do
+          gem "concurrent-ruby", "1.2.2"
+
+          lockfile do
+          end
+
+          lockfile "alt" do
+            gem "rake", "13.2.1"
+          end
+        RUBY
+          invoke_bundler("install", env:)
+
+          # merging into an existing secondary lockfile is what regenerates it
+          replace_string("Gemfile", 'gem "concurrent-ruby", "1.2.2"', 'gem "concurrent-ruby", "1.3.4"')
+          invoke_bundler("install", env:)
+          expect(File.read("Gemfile.alt.lock")).to include("concurrent-ruby (1.3.4)")
+        end
+      end
+    end
+
     it "keeps checksums the same for gems in common between lockfiles" do
       with_gemfile(<<~RUBY) do
         gem "concurrent-ruby", "1.2.2"
