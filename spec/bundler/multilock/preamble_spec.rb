@@ -400,4 +400,27 @@ describe Bundler::Multilock::Preamble do
       expect(File.read("injected.rb")).to eq injected
     end
   end
+
+  it "does not inject the preamble when the bundle is frozen" do
+    with_gemfile("") do
+      gemfile = <<~RUBY
+        # frozen_string_literal: true
+
+        source "https://rubygems.org"
+
+        gem "concurrent-ruby", "1.2.2"
+      RUBY
+      File.write("Gemfile", gemfile)
+
+      # the plugin installer unfreezes the bundle, so install it first and then take the preamble back out
+      local_path = Shellwords.escape(plugin_path)
+      invoke_bundler("plugin install bundler-multilock --path=#{local_path}")
+      File.write("Gemfile", gemfile)
+
+      invoke_bundler("config frozen true")
+      invoke_bundler("list", allow_failure: true)
+
+      expect(File.read("Gemfile")).to eq gemfile
+    end
+  end
 end
