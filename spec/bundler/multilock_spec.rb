@@ -408,6 +408,55 @@ describe Bundler::Multilock do
     end
   end
 
+  it "installs a missing lockfile that enforces pinned dependencies when frozen" do
+    with_gemfile(<<~RUBY) do
+      lockfile("full", enforce_pinned_additional_dependencies: true) do
+        gem "net-smtp", "0.3.2"
+        gem "net-protocol", "0.2.1"
+        gem "timeout", "0.3.2"
+      end
+
+      gem "net-ldap", "0.17.0"
+    RUBY
+      invoke_bundler("install")
+      File.delete("Gemfile.full.lock")
+
+      invoke_bundler("config set --local frozen true")
+      invoke_bundler("install")
+
+      expect(File.read("Gemfile.full.lock")).to include("net-smtp (0.3.2)")
+    end
+  end
+
+  it "fails to install a missing lockfile that enforces pinned dependencies when frozen if they aren't pinned" do
+    with_gemfile(<<~RUBY) do
+      lockfile("full", enforce_pinned_additional_dependencies: true) do
+        gem "net-smtp", "0.3.2"
+        gem "net-protocol", "0.2.1"
+        gem "timeout", "0.3.2"
+      end
+
+      gem "net-ldap", "0.17.0"
+    RUBY
+      invoke_bundler("install")
+      File.delete("Gemfile.full.lock")
+
+      write_gemfile(<<~RUBY)
+        lockfile("full", enforce_pinned_additional_dependencies: true) do
+          gem "net-smtp", "~> 0.3"
+        end
+
+        gem "net-ldap", "0.17.0"
+      RUBY
+
+      invoke_bundler("config set --local frozen true")
+      expect do
+        invoke_bundler("install")
+      end.to raise_error(/net-smtp \([0-9.]+\) in Gemfile.full.lock has not been pinned/m)
+      invoke_bundler("config set --local frozen false")
+    end
+  end
+
   context "with mismatched dependencies disallowed" do
     it "notifies about mismatched versions between different lockfiles" do
       with_gemfile(<<~RUBY) do
