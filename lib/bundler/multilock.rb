@@ -230,6 +230,8 @@ module Bundler
                 TEXT
               end
 
+              added_platforms = []
+              removed_platforms = []
               if lockfile_name.exist?
                 # if the lockfile already exists, "merge" it together
                 parent_lockfile = if adjusted_parent_lockfile_contents == cache.contents(lockfile_name)
@@ -279,7 +281,11 @@ module Bundler
                   parent_spec
                 end
 
-                lockfile.platforms.replace(parent_lockfile.platforms).uniq!
+                # leave the lockfile's platforms alone, and let Bundler add and remove them itself
+                # (in write_lockfile), like `bundle lock --add-platform` and `--remove-platform`,
+                # so that it also adds or removes the gems needed for them
+                removed_platforms = lockfile.platforms - parent_lockfile.platforms
+                added_platforms = parent_lockfile.platforms - lockfile.platforms
                 lockfile.instance_variable_set(:@ruby_version, parent_lockfile.ruby_version) if lockfile.ruby_version
                 unless lockfile.bundler_version == parent_lockfile.bundler_version
                   unlocking_bundler = parent_lockfile.bundler_version
@@ -307,7 +313,9 @@ module Bundler
                                                  cache,
                                                  install:,
                                                  dependency_changes:,
-                                                 unlocking_bundler:)
+                                                 unlocking_bundler:,
+                                                 added_platforms:,
+                                                 removed_platforms:)
                 end
               end
               cache.invalidate_lockfile(lockfile_name) if had_changes
@@ -504,7 +512,9 @@ module Bundler
                          cache,
                          install:,
                          dependency_changes: false,
-                         unlocking_bundler: false)
+                         unlocking_bundler: false,
+                         added_platforms: [],
+                         removed_platforms: [])
         prepare_block = lockfile_definition[:prepare]
 
         gemfile = lockfile_definition[:gemfile]
@@ -522,6 +532,8 @@ module Bundler
 
         definition = builder.to_definition(lockfile, { bundler: unlocking_bundler })
         definition.instance_variable_set(:@dependency_changes, dependency_changes) if dependency_changes
+        added_platforms.each { |platform| definition.add_platform(platform) }
+        removed_platforms.each { |platform| definition.remove_platform(platform) }
 
         # match the parent lockfile in whether there are checksums
         unless Bundler.frozen_bundle?
@@ -572,8 +584,10 @@ module Bundler
           previous_ui_level = Bundler.ui.level
           Bundler.ui.level = "warn"
           begin
-            # force a remote resolution if intermediate gems are missing
-            if definition.instance_variable_get(:@locked_spec_with_missing_deps) ||
+            # force a remote resolution if intermediate gems are missing, or if platforms were added
+            # (a gem's source variant would satisfy them locally, without its platform specific variants)
+            if (added_platforms.any? && !local_only?) ||
+               definition.instance_variable_get(:@locked_spec_with_missing_deps) ||
                definition.instance_variable_get(:@locked_spec_with_invalid_deps) ||
                definition.instance_variable_get(:@missing_lockfile_dep) ||
                definition.instance_variable_get(:@invalid_lockfile_dep)
