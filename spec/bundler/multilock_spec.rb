@@ -653,6 +653,53 @@ describe Bundler::Multilock do
     end
   end
 
+  it "removes source variants from the alternate lockfile when removing the ruby platform" do
+    with_gemfile(<<~RUBY) do
+      gem "nokogiri"
+
+      lockfile("full") do
+        gem "rake"
+      end
+    RUBY
+      invoke_bundler("install")
+      expect(File.read("Gemfile.full.lock")).to match(/^    mini_portile2 /)
+      expect(File.read("Gemfile.full.lock")).to match(/^    nokogiri \(\d[\d.]*\)$/)
+
+      invoke_bundler("lock --remove-platform ruby")
+
+      [File.read("Gemfile.lock"), File.read("Gemfile.full.lock")].each do |lockfile|
+        expect(lockfile).not_to match(/^    mini_portile2 /)
+        expect(lockfile).not_to match(/^    nokogiri \(\d[\d.]*\)$/)
+      end
+      invoke_bundler("check")
+    end
+  end
+
+  it "adds the gems for a platform to the alternate lockfile when adding the platform" do
+    with_gemfile(<<~RUBY) do
+      gem "nokogiri"
+
+      lockfile("full") do
+        gem "rake"
+      end
+    RUBY
+      invoke_bundler("install")
+
+      invoke_bundler("lock --remove-platform ruby")
+      invoke_bundler("lock --remove-platform x86_64-linux-musl")
+      expect(File.read("Gemfile.full.lock")).not_to match(/^    nokogiri \(\d[\d.]*-x86_64-linux-musl\)$/)
+
+      invoke_bundler("lock --add-platform ruby")
+      invoke_bundler("lock --add-platform x86_64-linux-musl")
+
+      lockfiles = [File.read("Gemfile.lock"), File.read("Gemfile.full.lock")]
+      expect(lockfiles).to all(match(/^    mini_portile2 /))
+      expect(lockfiles).to all(match(/^    nokogiri \(\d[\d.]*\)$/))
+      expect(lockfiles).to all(match(/^    nokogiri \(\d[\d.]*-x86_64-linux-musl\)$/))
+      invoke_bundler("check")
+    end
+  end
+
   it "syncs lockfiles with `bundle lock` when gems aren't installed" do
     with_gemfile("") do
       # install the plugin (`bundle lock` won't), but keep gems isolated so
