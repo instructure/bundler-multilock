@@ -184,7 +184,12 @@ module Bundler
               next
             end
 
-            if Bundler.frozen_bundle?
+            # a missing lockfile that enforces pinned additional dependencies has nothing
+            # to be out of sync with, so even a frozen bundle just generates it
+            generate_missing = Bundler.frozen_bundle? && !lockfile_name.exist? &&
+                               lockfile_definition[:enforce_pinned_additional_dependencies]
+
+            if Bundler.frozen_bundle? && !generate_missing
               # if we're frozen, you have to use the pre-existing lockfile
               unless lockfile_name.exist?
                 Bundler.ui.error("The bundle is locked, but #{relative_lockfile} is missing. " \
@@ -294,12 +299,16 @@ module Bundler
                 temp_lockfile.write(new_contents)
                 temp_lockfile.flush
 
-                had_changes ||= write_lockfile(lockfile_definition,
-                                               temp_lockfile.path,
-                                               cache,
-                                               install:,
-                                               dependency_changes:,
-                                               unlocking_bundler:)
+                # Bundler refuses to write a lockfile when frozen, which we need to allow in the case
+                # of a missing lockfile that enforces pinned dependencies.
+                Bundler.settings.temporary(frozen: generate_missing ? false : Bundler.frozen_bundle?) do
+                  had_changes ||= write_lockfile(lockfile_definition,
+                                                 temp_lockfile.path,
+                                                 cache,
+                                                 install:,
+                                                 dependency_changes:,
+                                                 unlocking_bundler:)
+                end
               end
               cache.invalidate_lockfile(lockfile_name) if had_changes
 
