@@ -74,6 +74,32 @@ describe Bundler::Multilock do
       end
     end
 
+    it "removes the gems from groups excluded by `only`, in every lockfile" do
+      with_gemfile(<<~RUBY) do
+        lockfile do
+          gem "rake", "13.2.1"
+        end
+
+        lockfile "Gemfile.alt.lock" do
+          gem "rake", "13.1.0"
+
+          group :extra do
+            gem "concurrent-ruby", "1.2.2"
+          end
+        end
+      RUBY
+        use_local_bundle_path
+        invoke_bundler("install")
+        expect(installed_gems).to include("concurrent-ruby-1.2.2")
+
+        invoke_bundler("config set --local only default")
+        invoke_bundler("clean")
+
+        expect(installed_gems).to include("rake-13.2.1", "rake-13.1.0")
+        expect(installed_gems).not_to include("concurrent-ruby-1.2.2")
+      end
+    end
+
     it "keeps the default lockfile's own versions when an alternate lockfile is active" do
       with_gemfile(<<~RUBY) do
         lockfile(active: false) do

@@ -95,6 +95,56 @@ describe Bundler::Multilock do
       end
     end
 
+    it "leaves out the gems from groups excluded by `only`, in every lockfile" do
+      with_gemfile(<<~RUBY) do
+        lockfile do
+          gem "rake", "13.2.1"
+        end
+
+        lockfile "Gemfile.alt.lock" do
+          gem "rake", "13.1.0"
+
+          group :extra do
+            gem "concurrent-ruby", "1.2.2"
+          end
+        end
+      RUBY
+        use_local_bundle_path
+        invoke_bundler("install")
+        invoke_bundler("config set --local only default")
+        invoke_bundler("cache")
+
+        expect(cached_gems).to include("rake-13.2.1", "rake-13.1.0")
+        expect(cached_gems).not_to include("concurrent-ruby-1.2.2")
+      end
+    end
+
+    it "doesn't prune cached gems from groups excluded by `without`, like Bundler" do
+      with_gemfile(<<~RUBY) do
+        lockfile do
+          gem "rake", "13.2.1"
+        end
+
+        lockfile "Gemfile.alt.lock" do
+          gem "rake", "13.1.0"
+
+          group :extra do
+            gem "concurrent-ruby", "1.2.2"
+          end
+        end
+      RUBY
+        use_local_bundle_path
+        invoke_bundler("install")
+        invoke_bundler("cache")
+        expect(cached_gems).to include("concurrent-ruby-1.2.2")
+
+        invoke_bundler("config set --local without extra")
+        invoke_bundler("cache")
+
+        expect(cached_gems).to include("rake-13.2.1", "rake-13.1.0", "concurrent-ruby-1.2.2")
+      end
+    end
+
     it "only caches the active lockfile's gems when BUNDLE_LOCKFILE is specified" do
       with_gemfile(<<~RUBY) do
         gem "rake", "13.2.1"
