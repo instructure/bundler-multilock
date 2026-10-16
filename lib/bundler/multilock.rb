@@ -549,6 +549,10 @@ module Bundler
         definition.instance_variable_set(:@lockfile_contents, current_lockfile.read) if current_lockfile.exist?
 
         orig_definition = definition.dup # we might need it twice
+        # `dup` shares the platforms array, and resolving locally changes it (like dropping the ruby platform,
+        # and adding the local platform) before it might fail, which would leave a remote resolution
+        # starting from the wrong platforms
+        orig_definition.instance_variable_set(:@platforms, definition.instance_variable_get(:@platforms).dup)
 
         # install gems for the exact current version of the lockfile
         # this ensures it doesn't re-resolve with only (different)
@@ -626,6 +630,11 @@ module Bundler
                   "Run without `--local` to fetch them."
           end
           SharedHelpers.capture_filesystem_access do
+            # a frozen bundle can't change its lockfile, and trying to just fails with a misleading
+            # error from Bundler (like about updating Bundler itself). install what it locks, and
+            # let the check afterwards report what's actually wrong with it
+            next if Bundler.frozen_bundle?
+
             definition.instance_variable_set(:@resolved_bundler_version, unlocking_bundler) if unlocking_bundler
 
             # need to force it to _not_ preserve unknown sections, so that it
