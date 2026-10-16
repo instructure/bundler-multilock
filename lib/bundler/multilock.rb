@@ -4,6 +4,7 @@ require_relative "multilock/ext/bundler"
 require_relative "multilock/ext/definition"
 require_relative "multilock/ext/dsl"
 require_relative "multilock/ext/plugin/dsl"
+require_relative "multilock/ext/runtime"
 require_relative "multilock/ext/shared_helpers"
 require_relative "multilock/ext/source"
 require_relative "multilock/ext/source_list"
@@ -411,6 +412,32 @@ module Bundler
       # @!visibility private
       def default_lockfile_definition
         lockfile_definitions[Bundler.default_lockfile(force_original: true)]
+      end
+
+      # @!visibility private
+      # The definitions of the other lockfiles, when working with all of them (so not with
+      # BUNDLE_LOCKFILE), for packaging gems from all of them. Their gems need to have been
+      # installed already, by a regular `bundle install`.
+      #
+      # @return [Array<Definition>]
+      def alternate_definitions
+        return [] if lockfile_definitions.empty? || env_lockfile
+
+        default_root = Bundler.root
+        lockfile_definitions.filter_map do |lockfile_name, lockfile_definition|
+          # the one Bundler is already working with, which may be an alternate lockfile flagged as active
+          next if lockfile_name == Bundler.default_lockfile
+          next unless lockfile_definition[:lockfile].exist?
+
+          Bundler.root = lockfile_definition[:gemfile].dirname
+          builder = Dsl.new
+          prepare_block = lockfile_definition[:prepare]
+          builder.eval_gemfile(lockfile_definition[:gemfile], &prepare_block) if prepare_block
+          builder.eval_gemfile(lockfile_definition[:gemfile])
+          builder.to_definition(lockfile_definition[:lockfile], {})
+        end
+      ensure
+        Bundler.root = default_root if default_root
       end
 
       private
