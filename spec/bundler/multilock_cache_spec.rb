@@ -188,6 +188,64 @@ describe Bundler::Multilock do
       end
     end
 
+    describe "with cache_all_platforms" do
+      def native_platforms
+        %w[aarch64-linux-gnu arm64-darwin x86_64-linux-gnu]
+      end
+
+      def with_native_gems
+        with_gemfile(<<~RUBY) do
+          lockfile do
+            gem "nokogiri", "1.19.3"
+          end
+
+          lockfile "Gemfile.alt.lock" do
+            gem "nokogiri", "1.19.2"
+          end
+        RUBY
+          use_local_bundle_path
+          invoke_bundler("install")
+          invoke_bundler("lock --add-platform x86_64-linux aarch64-linux arm64-darwin")
+
+          yield
+        end
+      end
+
+      def expect_every_platform_cached
+        %w[1.19.3 1.19.2].each do |version|
+          expect(cached_gems).to include("nokogiri-#{version}",
+                                         *native_platforms.map { |platform| "nokogiri-#{version}-#{platform}" })
+        end
+      end
+
+      it "caches the gems for every platform from every lockfile, and keeps them when pruning" do
+        with_native_gems do
+          invoke_bundler("cache --all-platforms")
+          expect_every_platform_cached
+
+          # a gem that isn't in any lockfile
+          install_local_gem("rake", "13.0.6")
+          FileUtils.cp("#{local_gem_dir}/cache/rake-13.0.6.gem", "vendor/cache/")
+
+          output = invoke_bundler("cache --all-platforms")
+
+          expect(output).to include("Removing outdated .gem files")
+          expect_every_platform_cached
+          expect(cached_gems).not_to include("rake-13.0.6")
+        end
+      end
+
+      it "does the same with the cache_all_platforms setting" do
+        with_native_gems do
+          invoke_bundler("config set --local cache_all_platforms true")
+          invoke_bundler("cache")
+          invoke_bundler("cache")
+
+          expect_every_platform_cached
+        end
+      end
+    end
+
     it "only caches the active lockfile's gems when BUNDLE_LOCKFILE is specified" do
       with_gemfile(<<~RUBY) do
         gem "rake", "13.2.1"
