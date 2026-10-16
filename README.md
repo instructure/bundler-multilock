@@ -35,6 +35,18 @@ between explicit dependencies (and their sub-dependencies), for cases where
 the lockfile variation is specifically to transition to a new version of
 a dependency (like a Rails upgrade).
 
+
+## BREAKING CHANGES
+
+Bundler::Multilock 2.0 makes a number of breaking changes:
+- The lockfile name parameter to `lockfile` must be a full filename, and not
+  a shorthand. "Gemfile" and ".lock" will not be added to the parameter any
+  more. This reduces confusion with the new `lockfile` method in Bundler 4.0.
+  `BUNDLE_LOCKFILE=active` is still supported to select which lockfile is
+  declared with `active: true`.
+- `lockfile(default:)` is removed; use `lockfile(active:)` instead.
+- `lockfile(allow_mismatched_dependencies:)` is removed with no replacement.
+
 ## Installation
 
 Bundler::Multilock 2.0 requires Bundler 4.1 or newer. Use version 1.x with older
