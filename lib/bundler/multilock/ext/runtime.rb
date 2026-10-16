@@ -27,7 +27,8 @@ module Bundler
 
         # Bundler's `clean` only keeps what the one definition needs, so keep what all of them need.
         # It also keys the specs it keeps by name, which would drop all but one version of a gem
-        # that the lockfiles disagree on, so that's replaced for the duration.
+        # that the lockfiles disagree on, so that's replaced for the duration. (Keyed by where they
+        # are installed, since different lockfiles can lock different revisions of the same git gem.)
         def clean(*)
           alternate_definitions = multilock_alternate_definitions
           return super if alternate_definitions.empty?
@@ -36,7 +37,7 @@ module Bundler
           rubygems = Bundler.rubygems
           original_add_default_gems_to = rubygems.method(:add_default_gems_to)
           rubygems.define_singleton_method(:add_default_gems_to) do |_specs|
-            (original_add_default_gems_to.call([]).values + combined).to_h { |spec| [spec.full_name, spec] }
+            (original_add_default_gems_to.call([]).values + combined).to_h { |spec| [spec.full_gem_path, spec] }
           end
 
           begin

@@ -74,6 +74,65 @@ describe Bundler::Multilock do
       end
     end
 
+    it "keeps the default lockfile's own versions when an alternate lockfile is active" do
+      with_gemfile(<<~RUBY) do
+        lockfile(active: false) do
+          gem "rake", ">= 13.0"
+        end
+
+        lockfile "Gemfile.alt.lock", active: true do
+          gem "rake", ">= 13.0"
+          gem "concurrent-ruby", "1.2.2"
+        end
+      RUBY
+        use_local_bundle_path
+        invoke_bundler("install")
+        primary_version = File.read("Gemfile.lock")[/^    rake \((\d[^)]*)\)/, 1]
+        install_local_gem("rake", "13.1.0")
+        replace_lockfile_pin("Gemfile.alt.lock", "rake", "13.1.0")
+
+        invoke_bundler("clean")
+
+        expect(installed_gems).to include("rake-#{primary_version}", "rake-13.1.0", "concurrent-ruby-1.2.2")
+      end
+    end
+
+    it "keeps different revisions of the same git gem" do
+      Dir.mktmpdir do |repo|
+        revisions = Dir.chdir(repo) do
+          create_local_gem("multi_rev_gem", subdirectory: false)
+          git = "git -c user.name=test -c user.email=test@example.com"
+          system("git init -q && git add -A && #{git} commit -q -m one", exception: true)
+          first = `git rev-parse HEAD`.strip
+          File.write("changed.txt", "second revision")
+          system("git add -A && #{git} commit -q -m two", exception: true)
+          [first, `git rev-parse HEAD`.strip]
+        end
+
+        with_gemfile(<<~RUBY) do
+          lockfile do
+            gem "rake", "13.2.1"
+          end
+
+          lockfile "Gemfile.one.lock" do
+            gem "multi_rev_gem", git: #{repo.inspect}, ref: #{revisions[0].inspect}
+          end
+
+          lockfile "Gemfile.two.lock" do
+            gem "multi_rev_gem", git: #{repo.inspect}, ref: #{revisions[1].inspect}
+          end
+        RUBY
+          use_local_bundle_path
+          invoke_bundler("install")
+          expect(Dir["#{local_gem_dir}/bundler/gems/*"].size).to eq 2
+
+          invoke_bundler("clean")
+
+          expect(Dir["#{local_gem_dir}/bundler/gems/*"].size).to eq 2
+        end
+      end
+    end
+
     describe "with the `prune` setting for git metadata" do
       def with_git_gem_in_alternate_lockfile
         Dir.mktmpdir do |repo|

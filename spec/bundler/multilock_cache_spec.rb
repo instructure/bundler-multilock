@@ -48,6 +48,53 @@ describe Bundler::Multilock do
       end
     end
 
+    # the lockfiles lock different versions of a gem that the Gemfile doesn't pin, as can happen when
+    # an alternate lockfile is updated on its own
+    def with_diverged_rake(gemfile)
+      with_gemfile(gemfile) do
+        use_local_bundle_path
+        invoke_bundler("install")
+
+        primary_version = File.read("Gemfile.lock")[/^    rake \((\d[^)]*)\)/, 1]
+        expect(primary_version).not_to eq "13.1.0"
+        install_local_gem("rake", "13.1.0")
+        replace_lockfile_pin("Gemfile.alt.lock", "rake", "13.1.0")
+
+        yield primary_version
+      end
+    end
+
+    it "caches the implicit default lockfile's gems when an alternate lockfile is active" do
+      with_diverged_rake(<<~RUBY) do |primary_version|
+        gem "rake", ">= 13.0"
+
+        lockfile "Gemfile.alt.lock", active: true do
+          gem "concurrent-ruby", "1.2.2"
+        end
+      RUBY
+        invoke_bundler("cache")
+
+        expect(cached_gems).to include("rake-#{primary_version}", "rake-13.1.0", "concurrent-ruby-1.2.2")
+      end
+    end
+
+    it "caches the default lockfile's own versions when an alternate lockfile is active" do
+      with_diverged_rake(<<~RUBY) do |primary_version|
+        lockfile(active: false) do
+          gem "rake", ">= 13.0"
+        end
+
+        lockfile "Gemfile.alt.lock", active: true do
+          gem "rake", ">= 13.0"
+          gem "concurrent-ruby", "1.2.2"
+        end
+      RUBY
+        invoke_bundler("cache")
+
+        expect(cached_gems).to include("rake-#{primary_version}", "rake-13.1.0", "concurrent-ruby-1.2.2")
+      end
+    end
+
     it "only caches the active lockfile's gems when BUNDLE_LOCKFILE is specified" do
       with_gemfile(<<~RUBY) do
         gem "rake", "13.2.1"

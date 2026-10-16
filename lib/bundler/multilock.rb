@@ -41,6 +41,11 @@ module Bundler
                        parent: nil,
                        enforce_pinned_additional_dependencies: false,
                        &block)
+        # remembered for gems that need to be kept for the primary lockfile, even if it was never
+        # declared and an alternate lockfile is active (which may use its own Gemfile)
+        @primary_gemfile ||= Bundler.default_gemfile
+        @primary_lockfile ||= Bundler.default_lockfile(force_original: true)
+
         active = true if active.nil? && lockfile_definitions.empty? && lockfile.nil? && gemfile.nil?
 
         # if a gemfile was provided, but not a lockfile, infer the default lockfile for that gemfile
@@ -423,18 +428,26 @@ module Bundler
       def alternate_definitions
         return [] if lockfile_definitions.empty? || env_lockfile
 
+        # the primary lockfile doesn't have to be declared
+        candidates = lockfile_definitions.values
+        if @primary_lockfile && !lockfile_definitions.key?(@primary_lockfile)
+          candidates += [{ gemfile: @primary_gemfile, lockfile: @primary_lockfile, prepare: nil }]
+        end
+
         default_root = Bundler.root
-        lockfile_definitions.filter_map do |lockfile_name, lockfile_definition|
+        candidates.filter_map do |lockfile_definition|
+          lockfile = lockfile_definition[:lockfile]
           # the one Bundler is already working with, which may be an alternate lockfile flagged as active
-          next if lockfile_name == Bundler.default_lockfile
-          next unless lockfile_definition[:lockfile].exist?
+          next if lockfile == Bundler.default_lockfile
+          next unless lockfile.exist?
 
           Bundler.root = lockfile_definition[:gemfile].dirname
           builder = Dsl.new
           prepare_block = lockfile_definition[:prepare]
           builder.eval_gemfile(lockfile_definition[:gemfile], &prepare_block) if prepare_block
           builder.eval_gemfile(lockfile_definition[:gemfile])
-          builder.to_definition(lockfile_definition[:lockfile], {})
+          # (as the default lockfile, so that it isn't swapped for the active one)
+          Bundler.with_default_lockfile(lockfile) { builder.to_definition(lockfile, {}) }
         end
       ensure
         Bundler.root = default_root if default_root
