@@ -286,7 +286,7 @@ module Bundler
                 # so that it also adds or removes the gems needed for them
                 removed_platforms = lockfile.platforms - parent_lockfile.platforms
                 added_platforms = parent_lockfile.platforms - lockfile.platforms
-                lockfile.instance_variable_set(:@ruby_version, parent_lockfile.ruby_version) if lockfile.ruby_version
+                lockfile.instance_variable_set(:@ruby_version, parent_lockfile.ruby_version)
                 unless lockfile.bundler_version == parent_lockfile.bundler_version
                   unlocking_bundler = parent_lockfile.bundler_version
                   lockfile.instance_variable_set(:@bundler_version, parent_lockfile.bundler_version)

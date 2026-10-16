@@ -1284,8 +1284,10 @@ describe Bundler::Multilock do
       update_lockfile_ruby("Gemfile.lock", "ruby 2.6.0p0")
       update_lockfile_ruby("Gemfile.alt.lock", nil)
 
-      invoke_bundler("install")
+      # the very first sync writes the parent's version; there's nothing left to fix on a second one
+      output = invoke_bundler("install --verbose")
       expect(File.read("Gemfile.alt.lock")).to include("ruby 2.6.0p0")
+      expect(output.scan("Re-running sync to Gemfile.alt.lock").length).to eq 1
     end
   end
 
