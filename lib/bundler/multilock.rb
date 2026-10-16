@@ -595,6 +595,11 @@ module Bundler
               spec.source.specs << spec
             end
             resolve_locally(definition)
+            # a local resolution can only see the gems that are installed, so it can drop platforms
+            # (like ruby) that remote gem variants would keep. the platforms should match the parent's
+            parent_platforms = cache.parser(lockfile_definition[:parent]).platforms.map(&:to_s).sort
+            raise SolveFailure unless local_only? || definition.platforms.map(&:to_s).sort == parent_platforms
+
             missing_checksums = fill_checksums(definition, lockfile_definition[:parent], cache)
             # fetch checksums that aren't available locally
             raise SolveFailure unless missing_checksums.empty? || local_only?
