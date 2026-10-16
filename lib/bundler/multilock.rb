@@ -4,6 +4,7 @@ require_relative "multilock/ext/bundler"
 require_relative "multilock/ext/definition"
 require_relative "multilock/ext/dsl"
 require_relative "multilock/ext/plugin/dsl"
+require_relative "multilock/ext/runtime"
 require_relative "multilock/ext/shared_helpers"
 require_relative "multilock/ext/source"
 require_relative "multilock/ext/source_list"
@@ -40,6 +41,11 @@ module Bundler
                        parent: nil,
                        enforce_pinned_additional_dependencies: false,
                        &block)
+        # remembered for gems that need to be kept for the primary lockfile, even if it was never
+        # declared and an alternate lockfile is active (which may use its own Gemfile)
+        @primary_gemfile ||= Bundler.default_gemfile
+        @primary_lockfile ||= Bundler.default_lockfile(force_original: true)
+
         active = true if active.nil? && lockfile_definitions.empty? && lockfile.nil? && gemfile.nil?
 
         # if a gemfile was provided, but not a lockfile, infer the default lockfile for that gemfile
@@ -406,11 +412,47 @@ module Bundler
       def reset!
         @lockfile_definitions = {}
         @loaded = false
+        @primary_gemfile = nil
+        @primary_lockfile = nil
       end
 
       # @!visibility private
       def default_lockfile_definition
         lockfile_definitions[Bundler.default_lockfile(force_original: true)]
+      end
+
+      # @!visibility private
+      # The definitions of the other lockfiles, when working with all of them (so not with
+      # BUNDLE_LOCKFILE), for packaging gems from all of them. Their gems need to have been
+      # installed already, by a regular `bundle install`.
+      #
+      # @return [Array<Definition>]
+      def alternate_definitions
+        return [] if lockfile_definitions.empty? || env_lockfile
+
+        # the primary lockfile doesn't have to be declared
+        candidates = lockfile_definitions.values
+        if @primary_lockfile && !lockfile_definitions.key?(@primary_lockfile)
+          candidates += [{ gemfile: @primary_gemfile, lockfile: @primary_lockfile, prepare: nil }]
+        end
+
+        default_root = Bundler.root
+        candidates.filter_map do |lockfile_definition|
+          lockfile = lockfile_definition[:lockfile]
+          # the one Bundler is already working with, which may be an alternate lockfile flagged as active
+          next if lockfile == Bundler.default_lockfile
+          next unless lockfile.exist?
+
+          Bundler.root = lockfile_definition[:gemfile].dirname
+          builder = Dsl.new
+          prepare_block = lockfile_definition[:prepare]
+          builder.eval_gemfile(lockfile_definition[:gemfile], &prepare_block) if prepare_block
+          builder.eval_gemfile(lockfile_definition[:gemfile])
+          # (as the default lockfile, so that it isn't swapped for the active one)
+          Bundler.with_default_lockfile(lockfile) { builder.to_definition(lockfile, {}) }
+        end
+      ensure
+        Bundler.root = default_root if default_root
       end
 
       private

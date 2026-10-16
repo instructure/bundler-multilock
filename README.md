@@ -144,6 +144,32 @@ of which lockfile is active, but still behave as if `BUNDLE_LOCKFILE` is set,
 bypassing any other syncing logic and not evaluating the default lockfile in
 our example.
 
+### Caching and cleaning gems
+
+`bundle cache` packages the gems from _all_ of your lockfiles into
+`vendor/cache` (including any version differences between them), so that
+deployments and CI can install without network access. `bundle install` does
+the same when `vendor/cache` already exists. Gems that none of the lockfiles
+use anymore are pruned, the same as Bundler does for a single lockfile. This
+applies even when an alternate lockfile is flagged with `active: true`.
+
+Run `bundle install` first, so that the gems from every lockfile are installed;
+`bundle cache` only copies them from there. Bundler's own settings apply to
+every lockfile: `cache_all` (on by default in Bundler 4) controls whether path
+and git gems are packaged, and `cache_all_platforms` (or `--all-platforms`)
+controls whether gems for other platforms are. Neither is set for you.
+
+Setting `BUNDLE_LOCKFILE` limits `bundle cache` to that one lockfile, and it
+will prune gems that only other lockfiles use. If you do need to cache
+lockfiles individually, set `bundle config set --local keep_outdated_cache true`
+to keep what's already there.
+
+`bundle clean` (and `bundle install` with the `clean` setting) works the same
+way: it keeps the installed gems from all of your lockfiles, and removes the
+ones that none of them use. With `BUNDLE_LOCKFILE` set, it keeps only that
+lockfile's gems. Bundler's `prune` setting also covers the git gems from all
+of your lockfiles.
+
 ## Comparison to Appraisal
 
 [Appraisal](https://github.com/thoughtbot/appraisal) is a gem that might serve
