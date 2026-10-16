@@ -44,7 +44,6 @@ module Bundler
 
         # if a gemfile was provided, but not a lockfile, infer the default lockfile for that gemfile
         lockfile ||= "#{gemfile}.lock" if gemfile
-        # allow short-form lockfile names
         lockfile = expand_lockfile(lockfile)
 
         raise ArgumentError, "Lockfile #{lockfile} is already defined" if lockfile_definitions.key?(lockfile)
@@ -382,10 +381,10 @@ module Bundler
         return [] unless lockfile
         return [lockfile] if recovered
 
-        # we can't tell if Bundler expanded a short name (or "active") to an
-        # absolute path, or if it was written that way, so allow either
+        # we can't tell if Bundler expanded "active" to an absolute path,
+        # or if it was written that way, so allow either
         relative = Pathname.new(lockfile).relative_path_from(Pathname.pwd).to_s
-        relative.include?("/") ? [lockfile] : [lockfile, relative]
+        (relative == "active") ? [lockfile, relative] : [lockfile]
       end
 
       # @!visibility private
@@ -441,9 +440,6 @@ module Bundler
       end
 
       def expand_lockfile(lockfile)
-        if lockfile.is_a?(String) && !(lockfile.include?("/") || lockfile.end_with?(".lock"))
-          lockfile = "Gemfile.#{lockfile}.lock"
-        end
         # use absolute paths
         lockfile = Bundler.root.join(lockfile).expand_path if lockfile
         # use the default lockfile (Gemfile.lock) if none was given
