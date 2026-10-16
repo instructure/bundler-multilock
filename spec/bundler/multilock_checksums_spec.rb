@@ -9,7 +9,7 @@ describe Bundler::Multilock do
         lockfile do
         end
 
-        lockfile "alt" do
+        lockfile "Gemfile.alt.lock" do
           gem "rake", "13.2.1"
         end
       RUBY
@@ -54,7 +54,7 @@ describe Bundler::Multilock do
           lockfile do
           end
 
-          lockfile "alt" do
+          lockfile "Gemfile.alt.lock" do
             gem "rake", "13.2.1"
           end
         RUBY
@@ -76,7 +76,7 @@ describe Bundler::Multilock do
         lockfile do
         end
 
-        lockfile "alt" do
+        lockfile "Gemfile.alt.lock" do
           gem "rake", "13.2.1"
         end
       RUBY
@@ -104,7 +104,7 @@ describe Bundler::Multilock do
         lockfile do
         end
 
-        lockfile "alt" do
+        lockfile "Gemfile.alt.lock" do
           gem "rake", "13.2.1"
         end
       RUBY
@@ -132,7 +132,7 @@ describe Bundler::Multilock do
         lockfile do
         end
 
-        lockfile "alt" do
+        lockfile "Gemfile.alt.lock" do
           gem "rake", "13.2.1"
         end
       RUBY

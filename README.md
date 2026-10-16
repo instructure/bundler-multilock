@@ -58,21 +58,21 @@ source "https://rubygems.org"
 plugin "bundler-multilock", "~> 2.0"
 return unless Plugin.loaded?("bundler-multilock")
 
-lockfile "rails-6.1" do
+lockfile "Gemfile.rails-6.1.lock" do
   gem "rails", "~> 6.1"
 end
 
-lockfile "rails-7.0" do
+lockfile "Gemfile.rails-7.0.lock" do
   gem "rails", "~> 7.0"
 end
 ```
 
 And then run `bundle install`. This will automatically generate additional
 lockfiles: `Gemfile.rails-6.1.lock` and `Gemfile.rails-7.0.lock`.
-Note that the default lockfile (`Gemfile.lock`) will not contain any gems
-that are in the specific `lockfile` blocks. If you have gems you want in
-the default lockfile, but not in other lockfiles, you can define a block
-for just that lockfile:
+Note that the default lockfile (`Gemfile.lock`, or set by `lockfile` without
+a block) will not contain any gems that are in the specific `lockfile` blocks.
+If you have gems you want in the default lockfile, but not in other lockfiles,
+you can define a block for just that lockfile:
 
 ```ruby
 lockfile do
@@ -84,7 +84,7 @@ When running other commands (such as tests), you select the desired lockfile
 with `BUNDLE_LOCKFILE`:
 
 ```shell
-BUNDLE_LOCKFILE=rails-7.0 bundle exec rspec
+BUNDLE_LOCKFILE=Gemfile.rails-7.0.lock bundle exec rspec
 ```
 
 You can also dynamically select it in your Gemfile, and pass `active: true`
@@ -116,7 +116,7 @@ lockfile active: RUBY_VERSION >= "2.7" do
   gem "debug", "~> 1.9"
 end
 
-lockfile "ruby-2.6", active: RUBY_VERSION < "2.7" do
+lockfile "Gemfile.ruby-2.6.lock", active: RUBY_VERSION < "2.7" do
   gem "debug", "~> 1.8.0"
 end
 ```
@@ -124,7 +124,7 @@ end
 However, you cannot run a regular `bundle install` while running Ruby 2.6 in
 this situation, since simply evaluating the default lockfile's block, even
 for checking that the lockfiles are valid, will raise an exception that debug
-1.9.0 require Ruby 2.7. You could set `BUNDLE_LOCKFILE=ruby-2.6` to have
+1.9.0 require Ruby 2.7. You could set `BUNDLE_LOCKFILE=Gemfile.ruby-2.6.lock` to have
 bundler-multilock only consider the one lockfile, but then your CI may need
 additional logic to _not_ set it for other Ruby versions. Instead, you can
 set `BUNDLE_LOCKFILE=active`, which will not override the Gemfile's selection
