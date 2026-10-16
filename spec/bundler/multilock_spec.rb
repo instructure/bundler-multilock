@@ -232,6 +232,38 @@ describe Bundler::Multilock do
     end
   end
 
+  it "adds dependencies that only the parent lockfile's versions need when syncing an older version" do
+    with_gemfile(<<~RUBY) do
+      lockfile("other/Gemfile.lock", gemfile: "other/Gemfile")
+
+      gem "activesupport", "7.0.8.7"
+    RUBY
+      FileUtils.mkdir_p("other")
+      File.write("other/Gemfile", <<~RUBY)
+        source "https://rubygems.org"
+
+        gem "activesupport", ">= 6.1", "< 7.1"
+      RUBY
+
+      invoke_bundler("install")
+      expect(File.read("other/Gemfile.lock")).to include("activesupport (7.0.8.7)")
+      expect(File.read("other/Gemfile.lock")).not_to include("zeitwerk")
+
+      # activesupport 6.1 depends on zeitwerk, but 7.0 doesn't
+      write_gemfile(<<~RUBY)
+        lockfile("other/Gemfile.lock", gemfile: "other/Gemfile")
+
+        gem "activesupport", "6.1.7.10"
+      RUBY
+      invoke_bundler("install")
+
+      expect(File.read("Gemfile.lock")).to include("activesupport (6.1.7.10)")
+      expect(File.read("other/Gemfile.lock")).to include("activesupport (6.1.7.10)")
+      expect(File.read("other/Gemfile.lock")).to include("zeitwerk")
+      invoke_bundler("check")
+    end
+  end
+
   it "doesn't add plugins from the main Gemfile to the lockfiles of other Gemfiles" do
     with_gemfile(<<~RUBY) do
       lockfile("other/Gemfile.lock", gemfile: "other/Gemfile")

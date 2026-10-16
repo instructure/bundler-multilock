@@ -263,6 +263,26 @@ module Bundler
                   parent_spec
                 end
 
+                # the parent's versions might depend on gems this lockfile didn't need before.
+                # without them, Bundler considers the lockfile broken, and ignores what's
+                # locked in it, which can update everything
+                names = lockfile.specs.to_set(&:name)
+                pending = lockfile.specs.dup
+                until pending.empty?
+                  pending.shift.dependencies.each do |dependency|
+                    next if names.include?(dependency.name) || !(dependency_specs = parent_specs[dependency.name])
+
+                    names << dependency.name
+                    dependency_changes = true
+                    dependency_specs.each_value do |dependency_spec|
+                      source = dependency_spec.source
+                      lockfile.sources << source unless lockfile.sources.include?(source)
+                      lockfile.specs << dependency_spec
+                      pending << dependency_spec
+                    end
+                  end
+                end
+
                 # leave the lockfile's platforms alone, and let Bundler add and remove them itself
                 # (in write_lockfile), like `bundle lock --add-platform` and `--remove-platform`,
                 # so that it also adds or removes the gems needed for them
