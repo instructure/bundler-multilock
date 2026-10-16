@@ -145,6 +145,49 @@ describe Bundler::Multilock do
       end
     end
 
+    it "caches different locked revisions of the same git gem from different lockfiles" do
+      Dir.mktmpdir do |repo|
+        revisions = Dir.chdir(repo) do
+          create_local_gem("multi_rev_gem", subdirectory: false)
+          git = "git -c user.name=test -c user.email=test@example.com"
+          system("git init -q -b main && git add -A && #{git} commit -q -m one", exception: true)
+          first = `git rev-parse HEAD`.strip
+          File.write("changed.txt", "second revision")
+          system("git add -A && #{git} commit -q -m two", exception: true)
+          [first, `git rev-parse HEAD`.strip]
+        end
+
+        with_gemfile(<<~RUBY) do
+          lockfile do
+            gem "rake", "13.2.1"
+          end
+
+          lockfile "Gemfile.one.lock" do
+            gem "multi_rev_gem", git: #{repo.inspect}, branch: "main"
+          end
+
+          lockfile "Gemfile.two.lock" do
+            gem "multi_rev_gem", git: #{repo.inspect}, branch: "main"
+          end
+        RUBY
+          use_local_bundle_path
+          invoke_bundler("install")
+
+          # the same version and branch, but locked at different commits
+          replace_string("Gemfile.one.lock", /revision: \h+/, "revision: #{revisions[0]}")
+          replace_string("Gemfile.two.lock", /revision: \h+/, "revision: #{revisions[1]}")
+          invoke_bundler("install")
+          invoke_bundler("cache")
+
+          # (named after the repository, not the gem)
+          cached_checkouts = Dir["vendor/cache/*-*"].select { |path| File.directory?(path) }
+                                                    .grep(/-\h{12}\z/)
+          expect(cached_checkouts.map { |path| File.basename(path)[-12..] }.sort)
+            .to eq(revisions.map { |revision| revision[0, 12] }.sort)
+        end
+      end
+    end
+
     it "only caches the active lockfile's gems when BUNDLE_LOCKFILE is specified" do
       with_gemfile(<<~RUBY) do
         gem "rake", "13.2.1"

@@ -412,6 +412,8 @@ module Bundler
       def reset!
         @lockfile_definitions = {}
         @loaded = false
+        @primary_gemfile = nil
+        @primary_lockfile = nil
       end
 
       # @!visibility private

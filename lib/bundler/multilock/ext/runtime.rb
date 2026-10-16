@@ -108,7 +108,11 @@ module Bundler
 
               source = spec.source
               next if source.is_a?(::Bundler::Source::Gemspec)
-              next unless cached.add?([spec.full_name, source])
+
+              # git sources are equal regardless of which revision is locked, but each one
+              # is cached separately
+              cache_key = source.respond_to?(:app_cache_dirname) ? source.app_cache_dirname : source
+              next unless cached.add?([spec.full_name, cache_key])
 
               if source.respond_to?(:migrate_cache)
                 source.migrate_cache(custom_path, local: false)
