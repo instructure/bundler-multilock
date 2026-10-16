@@ -139,9 +139,6 @@ module Bundler
 
         Bundler.ui.debug("Syncing to alternate lockfiles")
 
-        attempts = 1
-        previous_contents = Set.new
-
         default_root = Bundler.root
 
         cache = Cache.new
@@ -158,17 +155,6 @@ module Bundler
 
             relative_lockfile = lockfile_name.relative_path_from(Dir.pwd)
 
-            # prevent infinite loops of tick-tocking back and forth between two versions
-            current_contents = cache.contents(lockfile_name)
-            if previous_contents.include?(current_contents)
-              Bundler.ui.debug("Unable to converge on a single solution for #{lockfile_name}; " \
-                               "perhaps there are conflicting requirements?")
-              attempts = 1
-              previous_contents.clear
-              next
-            end
-            previous_contents << current_contents
-
             # already up to date?
             up_to_date = false
             conflicts = Set.new
@@ -178,11 +164,7 @@ module Bundler
                              checker.deep_check(lockfile_definition, conflicts:)
               end
             end
-            if up_to_date
-              attempts = 1
-              previous_contents.clear
-              next
-            end
+            next if up_to_date
 
             # a missing lockfile that enforces pinned additional dependencies has nothing
             # to be out of sync with, so even a frozen bundle just generates it
@@ -201,7 +183,7 @@ module Bundler
               Bundler.ui.info("Installing gems for #{relative_lockfile}...")
               write_lockfile(lockfile_definition, lockfile_name, cache, install:)
             else
-              Bundler.ui.info("Syncing to #{relative_lockfile}...") if attempts == 1
+              Bundler.ui.info("Syncing to #{relative_lockfile}...")
               synced_any = true
 
               parent_lockfile_name = lockfile_definition[:parent]
@@ -319,20 +301,6 @@ module Bundler
                 end
               end
               cache.invalidate_lockfile(lockfile_name) if had_changes
-
-              # if we had changes, bundler may have updated some common
-              # dependencies beyond the default lockfile, so re-run it
-              # once to reset them back to the default lockfile's version.
-              # if it's already good, the `check` check at the beginning of
-              # the loop will skip the second sync anyway.
-              if had_changes
-                attempts += 1
-                Bundler.ui.debug("Re-running sync to #{relative_lockfile} to reset common dependencies")
-                redo
-              else
-                attempts = 1
-                previous_contents.clear
-              end
             end
           end
         ensure
