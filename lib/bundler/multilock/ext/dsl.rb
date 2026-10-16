@@ -99,10 +99,15 @@ module Bundler
           @allowed_duplicate_plugins = Set.new
         end
 
-        def lockfile(*, **, &)
+        # Significant changes:
+        #  * a lockfile with a block or options is managed by Multilock
+        #  * a bare lockfile name is just Bundler's own `lockfile`, for
+        #    Gemfiles that only want to name their lockfile
+        def lockfile(*args, **kwargs, &block)
           return true if Multilock.loaded?
+          return super(args.first) if args.length == 1 && args.first.is_a?(String) && kwargs.empty? && !block
 
-          Multilock.add_lockfile(*, builder: self, **, &)
+          Multilock.add_lockfile(*args, builder: self, **kwargs, &block)
         end
       end
     end
