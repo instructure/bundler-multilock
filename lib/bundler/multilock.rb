@@ -139,9 +139,6 @@ module Bundler
 
         Bundler.ui.debug("Syncing to alternate lockfiles")
 
-        attempts = 1
-        previous_contents = Set.new
-
         default_root = Bundler.root
 
         cache = Cache.new
@@ -158,17 +155,6 @@ module Bundler
 
             relative_lockfile = lockfile_name.relative_path_from(Dir.pwd)
 
-            # prevent infinite loops of tick-tocking back and forth between two versions
-            current_contents = cache.contents(lockfile_name)
-            if previous_contents.include?(current_contents)
-              Bundler.ui.debug("Unable to converge on a single solution for #{lockfile_name}; " \
-                               "perhaps there are conflicting requirements?")
-              attempts = 1
-              previous_contents.clear
-              next
-            end
-            previous_contents << current_contents
-
             # already up to date?
             up_to_date = false
             conflicts = Set.new
@@ -178,11 +164,7 @@ module Bundler
                              checker.deep_check(lockfile_definition, conflicts:)
               end
             end
-            if up_to_date
-              attempts = 1
-              previous_contents.clear
-              next
-            end
+            next if up_to_date
 
             # a missing lockfile that enforces pinned additional dependencies has nothing
             # to be out of sync with, so even a frozen bundle just generates it
@@ -201,7 +183,7 @@ module Bundler
               Bundler.ui.info("Installing gems for #{relative_lockfile}...")
               write_lockfile(lockfile_definition, lockfile_name, cache, install:)
             else
-              Bundler.ui.info("Syncing to #{relative_lockfile}...") if attempts == 1
+              Bundler.ui.info("Syncing to #{relative_lockfile}...")
               synced_any = true
 
               parent_lockfile_name = lockfile_definition[:parent]
@@ -286,7 +268,7 @@ module Bundler
                 # so that it also adds or removes the gems needed for them
                 removed_platforms = lockfile.platforms - parent_lockfile.platforms
                 added_platforms = parent_lockfile.platforms - lockfile.platforms
-                lockfile.instance_variable_set(:@ruby_version, parent_lockfile.ruby_version) if lockfile.ruby_version
+                lockfile.instance_variable_set(:@ruby_version, parent_lockfile.ruby_version)
                 unless lockfile.bundler_version == parent_lockfile.bundler_version
                   unlocking_bundler = parent_lockfile.bundler_version
                   lockfile.instance_variable_set(:@bundler_version, parent_lockfile.bundler_version)
@@ -319,20 +301,6 @@ module Bundler
                 end
               end
               cache.invalidate_lockfile(lockfile_name) if had_changes
-
-              # if we had changes, bundler may have updated some common
-              # dependencies beyond the default lockfile, so re-run it
-              # once to reset them back to the default lockfile's version.
-              # if it's already good, the `check` check at the beginning of
-              # the loop will skip the second sync anyway.
-              if had_changes
-                attempts += 1
-                Bundler.ui.debug("Re-running sync to #{relative_lockfile} to reset common dependencies")
-                redo
-              else
-                attempts = 1
-                previous_contents.clear
-              end
             end
           end
         ensure
@@ -549,6 +517,10 @@ module Bundler
         definition.instance_variable_set(:@lockfile_contents, current_lockfile.read) if current_lockfile.exist?
 
         orig_definition = definition.dup # we might need it twice
+        # `dup` shares the platforms array, and resolving locally changes it (like dropping the ruby platform,
+        # and adding the local platform) before it might fail, which would leave a remote resolution
+        # starting from the wrong platforms
+        orig_definition.instance_variable_set(:@platforms, definition.instance_variable_get(:@platforms).dup)
 
         # install gems for the exact current version of the lockfile
         # this ensures it doesn't re-resolve with only (different)
@@ -626,6 +598,11 @@ module Bundler
                   "Run without `--local` to fetch them."
           end
           SharedHelpers.capture_filesystem_access do
+            # a frozen bundle can't change its lockfile, and trying to just fails with a misleading
+            # error from Bundler (like about updating Bundler itself). install what it locks, and
+            # let the check afterwards report what's actually wrong with it
+            next if Bundler.frozen_bundle?
+
             definition.instance_variable_set(:@resolved_bundler_version, unlocking_bundler) if unlocking_bundler
 
             # need to force it to _not_ preserve unknown sections, so that it

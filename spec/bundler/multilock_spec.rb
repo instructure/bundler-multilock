@@ -457,6 +457,63 @@ describe Bundler::Multilock do
     end
   end
 
+  it "keeps the parent's platforms when generating a missing lockfile requires resolving remotely" do
+    with_gemfile(<<~RUBY) do
+      gem "rake"
+
+      lockfile("full", enforce_pinned_additional_dependencies: true) do
+        gem "net-smtp", "0.3.2"
+        gem "net-protocol", "0.2.1"
+        gem "timeout", "0.3.2"
+      end
+    RUBY
+      use_local_bundle_path
+      invoke_bundler("install")
+      parent_platforms = File.read("Gemfile.lock")[/PLATFORMS\n(?:  .*\n)+/]
+      expect(parent_platforms).to include("ruby")
+
+      # with the additional gems not available locally, it first tries to resolve locally, then falls back to remote
+      File.delete("Gemfile.full.lock")
+      uninstall_local_gem("net-smtp", "0.3.2")
+      uninstall_local_gem("net-protocol", "0.2.1")
+      uninstall_local_gem("timeout", "0.3.2")
+
+      invoke_bundler("config set --local frozen true")
+      invoke_bundler("install")
+      invoke_bundler("config set --local frozen false")
+
+      expect(File.read("Gemfile.full.lock")[/PLATFORMS\n(?:  .*\n)+/]).to eq(parent_platforms)
+    end
+  end
+
+  it "reports what's wrong with an existing alternate lockfile when frozen, instead of trying to fix it" do
+    with_gemfile(<<~RUBY) do
+      gem "rake", "13.2.1"
+
+      lockfile("alt") do
+        gem "concurrent-ruby", "1.2.1"
+      end
+    RUBY
+      use_local_bundle_path
+      invoke_bundler("install")
+      uninstall_local_gem("concurrent-ruby", "1.2.1")
+
+      lockfile = File.read("Gemfile.alt.lock")
+      File.write("Gemfile.alt.lock", lockfile.sub(/BUNDLED WITH\n  .*\n/, "BUNDLED WITH\n  4.0.0\n"))
+
+      invoke_bundler("config set --local frozen true")
+      expect do
+        invoke_bundler("install")
+      end.to raise_error(/bundler \(4\.0\.0\) in Gemfile.alt.lock does not match the parent lockfile's version/) { |e|
+        expect(e.message).not_to include("frozen mode is set")
+      }
+      invoke_bundler("config set --local frozen false")
+
+      # and the gems it locks were still installed
+      expect(Dir["#{local_gem_dir}/gems/concurrent-ruby-1.2.1"]).not_to be_empty
+    end
+  end
+
   context "with mismatched dependencies disallowed" do
     it "notifies about mismatched versions between different lockfiles" do
       with_gemfile(<<~RUBY) do
