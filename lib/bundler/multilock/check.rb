@@ -133,6 +133,25 @@ module Bundler
         message
       end
 
+      # @return [Array<LazySpecification>] the specs that are only in the lockfile for the given specs
+      def specs_only_needed_by(unneeded_specs, parser)
+        specs_by_name = parser.specs.group_by(&:name)
+        reachable = Set.new
+        pending = parser.dependencies.keys
+        until pending.empty?
+          name = pending.shift
+          next unless reachable.add?(name)
+
+          specs_by_name[name]&.each do |spec|
+            next if unneeded_specs.any? { |unneeded| unneeded.equal?(spec) }
+
+            pending.concat(spec.dependencies.map(&:name))
+          end
+        end
+
+        parser.specs.reject { |spec| reachable.include?(spec.name) || unneeded_specs.any? { |u| u.equal?(spec) } }
+      end
+
       # checks that every gem has a checksum, and that gems in common (same version
       # and source) with the parent lockfile have the same checksums
       def checksums_valid?(parser, parent_parser, lockfile_path)
@@ -194,6 +213,32 @@ module Bundler
             success = false
           end
 
+          # the variants of gems don't depend on the platforms that are listed, so check them separately
+          stale_variants, missing_variants = Multilock.variant_drift(parser.specs,
+                                                                     parent_parser.specs,
+                                                                     parser.platforms,
+                                                                     parent_parser.platforms)
+          stale_variants += specs_only_needed_by(stale_variants, parser) unless stale_variants.empty?
+          unless stale_variants.empty? && missing_variants.empty?
+            parent_path = parent_lockfile_name.relative_path_from(Dir.pwd)
+            if stale_variants.any?
+              Bundler.ui.error("#{lockfile_path} has gem variants that #{parent_path} doesn't " \
+                               "(#{stale_variants.map { |spec| spec.lock_name.strip }.join(", ")}), " \
+                               "so it is out of sync with it.")
+            end
+            if missing_variants.any?
+              Bundler.ui.error("#{lockfile_path} is missing gem variants that #{parent_path} has " \
+                               "(#{missing_variants.map { |spec| spec.lock_name.strip }.join(", ")}), " \
+                               "so it is out of sync with it.")
+            end
+            if Bundler.frozen_bundle?
+              Bundler.ui.error("That can't be fixed while the bundle is frozen. Run `bundle install` " \
+                               "without frozen mode, and commit the updated #{lockfile_path}.")
+            end
+            success = false
+          end
+          stale_variants = stale_variants.to_set { |spec| [spec.name, spec.version] }
+
           # look through top-level explicit dependencies for pinned requirements
           if lockfile_definition[:enforce_pinned_additional_dependencies]
             find_pinned_dependencies(proven_pinned, parser.dependencies.each_value)
@@ -207,7 +252,8 @@ module Bundler
               # look through what this spec depends on, and keep track of all pinned requirements
               find_pinned_dependencies(proven_pinned, spec.dependencies)
 
-              needs_pin_check << spec unless parent_spec
+              # (already reported, and not actually additional)
+              needs_pin_check << spec unless parent_spec || stale_variants.include?([spec.name, spec.version])
             end
 
             next unless parent_spec

@@ -293,6 +293,27 @@ module Bundler
                 # so that it also adds or removes the gems needed for them
                 removed_platforms = lockfile.platforms - parent_lockfile.platforms
                 added_platforms = parent_lockfile.platforms - lockfile.platforms
+
+                # the lockfiles can agree on platforms, but still not on the variants of gems for them (perhaps
+                # due to merging of semantics conflicts), so clean up and/or add any missing variants.
+                stale_variants, missing_variants = variant_drift(lockfile.specs,
+                                                                 parent_lockfile.specs,
+                                                                 lockfile.platforms,
+                                                                 parent_lockfile.platforms)
+                stale_variants.map(&:platform).uniq.each do |platform|
+                  entries = matching_platforms(lockfile.platforms, platform)
+                  # Bundler can only remove a platform that's listed (and gems can have variants for
+                  # platforms, like ruby, that never are)
+                  lockfile.platforms << platform if entries.empty?
+                  removed_platforms |= entries.empty? ? [platform] : entries
+                end
+                missing_variants.map(&:platform).uniq.each do |platform|
+                  entries = matching_platforms(lockfile.platforms, platform)
+                  # and it can only add a platform that isn't listed
+                  lockfile.platforms.reject! { |entry| entries.include?(entry) }
+                  added_platforms |= entries
+                end
+                removed_platforms -= added_platforms
                 lockfile.instance_variable_set(:@ruby_version, parent_lockfile.ruby_version)
                 unless lockfile.bundler_version == parent_lockfile.bundler_version
                   unlocking_bundler = parent_lockfile.bundler_version
@@ -391,6 +412,53 @@ module Bundler
         # or if it was written that way, so allow either
         relative = Pathname.new(lockfile).relative_path_from(Pathname.pwd).to_s
         (relative == "active") ? [lockfile, relative] : [lockfile]
+      end
+
+      # @!visibility private
+      # Finds variants of gems (a gem version for a particular platform) that are in only one of two lockfiles,
+      # even though both of them have that version of the gem, and the platform is one that only one of them
+      # is for.
+      #
+      # The lockfiles can't be compared by their platforms alone, since gems can have variants for platforms
+      # (like ruby) that aren't listed.
+      #
+      # @param specs [Array<LazySpecification>]
+      # @param parent_specs [Array<LazySpecification>]
+      # @param platforms [Array<Gem::Platform, String>] the platforms listed in the lockfile for +specs+
+      # @param parent_platforms [Array<Gem::Platform, String>] the platforms listed in the parent lockfile
+      # @return [Array(Array<LazySpecification>, Array<LazySpecification>)]
+      #   the variants only in +specs+ (that the parent lockfile's platforms don't include), and the ones only in
+      #   +parent_specs+ (that +platforms+ do include)
+      def variant_drift(specs, parent_specs, platforms, parent_platforms)
+        ours = specs.group_by { |spec| [spec.name, spec.version] }
+        theirs = parent_specs.group_by { |spec| [spec.name, spec.version] }
+
+        # variants with no counterpart in the other lockfile, for a platform that the other lockfile
+        # does (or doesn't) list
+        only_in = lambda do |list, others, other_platforms, platform_listed|
+          list.select do |spec|
+            next false unless (other_variants = others[[spec.name, spec.version]])
+
+            other_variants.none? { |other| same_platform?(other.platform, spec.platform) } &&
+              matching_platforms(other_platforms, spec.platform).any? == platform_listed
+          end
+        end
+
+        [only_in.call(specs, theirs, parent_platforms, false), only_in.call(parent_specs, ours, platforms, true)]
+      end
+
+      # @!visibility private
+      # @return [true, false] if gems for one platform could be used for the other
+      def same_platform?(platform, other)
+        return platform == other unless platform.is_a?(Gem::Platform) && other.is_a?(Gem::Platform)
+
+        platform === other || other === platform # rubocop:disable Style/CaseEquality -- Gem::Platform's match
+      end
+
+      # @!visibility private
+      # @return [Array<Gem::Platform, String>] the platforms that gems for +platform+ are used for
+      def matching_platforms(platforms, platform)
+        platforms.select { |other| same_platform?(other, platform) }
       end
 
       # @!visibility private

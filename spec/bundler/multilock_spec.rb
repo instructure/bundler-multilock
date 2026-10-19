@@ -796,6 +796,106 @@ describe Bundler::Multilock do
     end
   end
 
+  # (like when the parent had a platform removed or added, but the alternate lockfile didn't,
+  # or got its gems back, while its platforms still match the parent's)
+  {
+    "ruby" => /^    nokogiri \(\d[\d.]*\)$/,
+    "x86_64-linux-musl" => /^    nokogiri \(\d[\d.]*-x86_64-linux-musl\)$/
+  }.each do |platform, variant|
+    context "when the alternate lockfile and the parent lockfile disagree on the gems for #{platform}" do
+      before do
+        skip "JRuby only locks java gems, so there are no variants for other platforms" if RUBY_ENGINE == "jruby"
+      end
+
+      def with_variants_of(platform, variant)
+        with_gemfile(<<~RUBY) do
+          gem "nokogiri"
+
+          lockfile("Gemfile.full.lock", enforce_pinned_additional_dependencies: true) do
+            gem "rake", "13.2.1"
+          end
+        RUBY
+          invoke_bundler("install")
+          with_platform = File.read("Gemfile.full.lock")
+          expect(with_platform).to match(variant)
+          platforms = ->(file) { File.read(file)[/PLATFORMS\n(?:  .*\n)+/] }
+
+          invoke_bundler("lock --remove-platform #{platform}")
+          expect(File.read("Gemfile.lock")).not_to match(variant)
+          without_platform = File.read("Gemfile.full.lock")
+
+          yield with_platform, without_platform, platforms
+        end
+      end
+
+      it "removes the gems the parent doesn't have when syncing" do
+        with_variants_of(platform, variant) do |with_platform, _without_platform, platforms|
+          # put the gems back in the alternate lockfile, leaving its platforms alone
+          File.write("Gemfile.full.lock", with_platform.sub("  #{platform}\n", ""))
+          expect(File.read("Gemfile.full.lock")).to match(variant)
+          expect(platforms.call("Gemfile.full.lock")).to eq(platforms.call("Gemfile.lock"))
+
+          invoke_bundler("install")
+
+          expect(File.read("Gemfile.full.lock")).not_to match(variant)
+          expect(platforms.call("Gemfile.full.lock")).to eq(platforms.call("Gemfile.lock"))
+          invoke_bundler("check")
+        end
+      end
+
+      it "doesn't change the lockfile when frozen, and says what's wrong with it" do
+        with_variants_of(platform, variant) do |with_platform, _without_platform, _platforms|
+          File.write("Gemfile.full.lock", with_platform.sub("  #{platform}\n", ""))
+          original = File.read("Gemfile.full.lock")
+
+          invoke_bundler("config set --local frozen true")
+          expect { invoke_bundler("install") }.to raise_error do |error|
+            expect(error.message).to include("Gemfile.full.lock has gem variants that Gemfile.lock doesn't")
+            expect(error.message).to include("nokogiri (1.")
+            expect(error.message).to include("can't be fixed while the bundle is frozen")
+            expect(error.message).not_to include("has not been pinned")
+          end
+          invoke_bundler("config set --local frozen false")
+
+          expect(File.read("Gemfile.full.lock")).to eq(original)
+        end
+      end
+
+      it "adds the gems the parent has when syncing" do
+        with_variants_of(platform, variant) do |_with_platform, without_platform, platforms|
+          # the parent gets the platform back, but the alternate lockfile only lists it
+          invoke_bundler("lock --add-platform #{platform}")
+          expect(File.read("Gemfile.lock")).to match(variant)
+          File.write("Gemfile.full.lock", without_platform.sub("PLATFORMS\n", "PLATFORMS\n  #{platform}\n"))
+          expect(File.read("Gemfile.full.lock")).not_to match(variant)
+
+          invoke_bundler("install")
+
+          expect(File.read("Gemfile.full.lock")).to match(variant)
+          expect(platforms.call("Gemfile.full.lock").lines.sort).to eq(platforms.call("Gemfile.lock").lines.sort)
+          invoke_bundler("check")
+        end
+      end
+
+      it "says the gems are missing when frozen" do
+        with_variants_of(platform, variant) do |_with_platform, without_platform, _platforms|
+          invoke_bundler("lock --add-platform #{platform}")
+          File.write("Gemfile.full.lock", without_platform.sub("PLATFORMS\n", "PLATFORMS\n  #{platform}\n"))
+          original = File.read("Gemfile.full.lock")
+
+          invoke_bundler("config set --local frozen true")
+          expect { invoke_bundler("install") }.to raise_error do |error|
+            expect(error.message).to include("Gemfile.full.lock is missing gem variants that Gemfile.lock has")
+            expect(error.message).to include("can't be fixed while the bundle is frozen")
+          end
+          invoke_bundler("config set --local frozen false")
+
+          expect(File.read("Gemfile.full.lock")).to eq(original)
+        end
+      end
+    end
+  end
+
   it "adds the gems for a platform to the alternate lockfile when adding the platform" do
     skip "JRuby can't remove the ruby platform" if RUBY_ENGINE == "jruby"
     with_gemfile(<<~RUBY) do
