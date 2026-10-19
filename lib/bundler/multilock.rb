@@ -219,6 +219,7 @@ module Bundler
 
               added_platforms = []
               removed_platforms = []
+              unlock_gems = Set.new
               if lockfile_name.exist?
                 # if the lockfile already exists, "merge" it together
                 parent_lockfile = if adjusted_parent_lockfile_contents == cache.contents(lockfile_name)
@@ -231,24 +232,13 @@ module Bundler
 
                 dependency_changes = false
 
-                spec_precedences = {}
-
-                check_precedence = lambda do |spec, parent_spec|
-                  next :parent if spec.nil?
-                  next :self if parent_spec.nil?
-                  next spec_precedences[spec.name] if spec_precedences.key?(spec.name)
-
-                  precedence = if !(cache.reverse_dependencies(lockfile_name)[spec.name] & conflicts).empty? # rubocop:disable Style/ArrayIntersect -- not an array
-                                 :parent
-                               elsif cache.conflicting_requirements?(lockfile_name,
-                                                                     parent_lockfile_name,
-                                                                     spec,
-                                                                     parent_spec)
-                                 :self
-                               end
-
-                  spec_precedences[spec.name] = precedence || :parent
-                end
+                precedences, unlock_gems = spec_precedences(
+                  cache,
+                  lockfile_name,
+                  parent_lockfile_name,
+                  conflicts,
+                  gemfile_requirements: gemfile_requirements(lockfile_definition)
+                )
 
                 lockfile.sources.map! do |source|
                   parent_lockfile.sources.find { |s| s == source } || source
@@ -257,7 +247,7 @@ module Bundler
                 lockfile.specs.map! do |spec|
                   parent_spec = cache.find_matching_spec(parent_specs, spec)
                   next spec unless parent_spec
-                  next spec if check_precedence.call(spec, parent_spec) == :self
+                  next spec if precedences[spec.name] == :self
 
                   dependency_changes ||= spec != parent_spec
 
@@ -353,7 +343,8 @@ module Bundler
                                                  dependency_changes:,
                                                  unlocking_bundler:,
                                                  added_platforms:,
-                                                 removed_platforms:)
+                                                 removed_platforms:,
+                                                 unlock_gems:)
                 end
               end
               cache.invalidate_lockfile(lockfile_name) if had_changes
@@ -422,6 +413,305 @@ module Bundler
         # or if it was written that way, so allow either
         relative = Pathname.new(lockfile).relative_path_from(Pathname.pwd).to_s
         (relative == "active") ? [lockfile, relative] : [lockfile]
+      end
+
+      # @!visibility private
+      # @param lockfile_definition [Hash]
+      # @return [Hash<String, Gem::Requirement>] the requirements that the lockfile's Gemfile has for its
+      #   dependencies, which are only in the lockfile itself after it's synced
+      def gemfile_requirements(lockfile_definition)
+        gemfile = lockfile_definition[:gemfile]
+        prepare_block = lockfile_definition[:prepare]
+
+        builder = Dsl.new
+        builder.eval_gemfile(gemfile, &prepare_block) if prepare_block
+        builder.eval_gemfile(gemfile)
+        builder.dependencies.group_by(&:name).transform_values do |dependencies|
+          Gem::Requirement.new(dependencies.flat_map { |dependency| dependency.requirement.as_list })
+        end
+      end
+
+      # @!visibility private
+      # Decides, for each gem in a lockfile that is also in its parent lockfile, which one's version wins when
+      # syncing the lockfile.
+      #
+      # A gem follows the parent, unless something that's staying as it is requires its version, and the
+      # parent can't use that version either (so it's different on purpose). Gems that follow the parent
+      # have different requirements from what they had, so they don't count. Neither do gems that nothing
+      # needs any more, once the others follow the parent. If the parent can use the version, the gems that
+      # are in the way have to be updated instead, so they're unlocked. And they also don't count, since
+      # they'll have different requirements, once they're updated.
+      #
+      # Each of those can change the others, so this starts out assuming that every gem that's different from
+      # the parent is going to follow it, and repeats, until that matches which ones actually do. And then
+      # repeats that, until the gems that are unlocked don't change.
+      #
+      # @param cache [Cache]
+      # @param lockfile_name [Pathname]
+      # @param parent_lockfile_name [Pathname]
+      # @param conflicts [Set<String>] names of gems that are out of sync, with no reason to be
+      # @param gemfile_requirements [Hash<String, Gem::Requirement>, nil]
+      #   the requirements of the lockfile's Gemfile. The lockfile's own copy of them may be about to change
+      # @return [Array(Hash<String, Symbol>, Set<String>)]
+      #   gem name to +:parent+ or +:self+, and the names of the gems that have to be unlocked for the ones
+      #   that follow the parent to be able to
+      def spec_precedences(cache, lockfile_name, parent_lockfile_name, conflicts, gemfile_requirements: nil)
+        parent_specs = cache.specs(parent_lockfile_name)
+        own_specs = cache.specs(lockfile_name)
+        roots = gemfile_requirements&.keys || cache.parser(lockfile_name).dependencies.keys
+
+        # every platform variant of a gem gets replaced with its parent's, so any of them can change
+        variants = Hash.new { |hash, name| hash[name] = [] }
+        cache.parser(lockfile_name).specs.each do |spec|
+          next unless (parent_spec = cache.find_matching_spec(parent_specs, spec))
+
+          variants[spec.name] << [spec, parent_spec]
+        end
+        # (and the ones that the variants the lockfile has are replaced with)
+        matched = variants.transform_values { |gem_variants| gem_variants.map(&:last).uniq }
+
+        # other variants of a gem that follows the parent, that the parent doesn't have a counterpart for,
+        # are kept as they are
+        unmatched = cache.parser(lockfile_name).specs.select do |spec|
+          variants.key?(spec.name) && !cache.find_matching_spec(parent_specs, spec)
+        end.group_by(&:name)
+
+        # a gem can change what it depends on without changing its version (like a git gem)
+        differing = variants.select do |_name, gem_variants|
+          gem_variants.any? { |spec, parent_spec| spec_changed?(spec, parent_spec) }
+        end.keys
+
+        # the variants that stay, but that cleaning up the variants after replacing the gems will remove
+        counterparts = {}.compare_by_identity
+        variants.each_value do |gem_variants|
+          gem_variants.each { |spec, parent_spec| counterparts[spec] = parent_spec }
+        end
+        removed = lambda do |following_parent|
+          merged = cache.parser(lockfile_name).specs.map do |spec|
+            following_parent.include?(spec.name) ? counterparts.fetch(spec, spec) : spec
+          end
+          stale, = variant_drift(merged,
+                                 cache.parser(parent_lockfile_name).specs,
+                                 cache.parser(lockfile_name).platforms,
+                                 cache.parser(parent_lockfile_name).platforms,
+                                 dependency_names: roots.to_a,
+                                 dependency_options: cache.dependency_options(lockfile_name),
+                                 same_source: lambda do |spec, parent_spec|
+                                   same_source?(spec, parent_spec, lockfile_name, parent_lockfile_name)
+                                 end)
+          stale.to_set & unmatched.values.flatten
+        end
+
+        # the specs of gems that only the parent has, that this lockfile could get (if the Gemfile can use them)
+        importable = lambda do |name|
+          parent_specs[name]&.values&.select do |spec|
+            !gemfile_requirements&.key?(name) || gemfile_requirements[name].satisfied_by?(spec.version)
+          end
+        end
+
+        unneeded = lambda do |following_parent, removed_variants|
+          staying = unmatched.transform_values { |specs| specs.reject { |spec| removed_variants.include?(spec) } }
+          own_specs.keys.to_set - needed_gems(roots, own_specs, importable, following_parent, matched, staying)
+        end
+
+        unlock = Set.new
+        loop do
+          precedences, blockers = converge_precedences(cache,
+                                                       lockfile_name,
+                                                       parent_lockfile_name,
+                                                       variants,
+                                                       conflicts.to_set | differing,
+                                                       differing:,
+                                                       unlock:,
+                                                       removed:,
+                                                       unneeded:,
+                                                       roots:,
+                                                       importable:,
+                                                       retained: unmatched.values.flatten.to_set,
+                                                       gemfile_requirements:)
+
+          return [precedences, unlock] if blockers.subset?(unlock)
+
+          unlock |= blockers
+        end
+      end
+
+      # @!visibility private
+      # (see #spec_precedences)
+      # @param variants [Hash<String, Array<Array(LazySpecification, LazySpecification)>>]
+      #   gem name to each of its specs, and its spec in the parent lockfile
+      # @param out_of_sync [Set<String>] the gems assumed to follow the parent to start with
+      # @param differing [Array<String>] the gems that follow the parent, if they can
+      # @param unlock [Set<String>] gems that are already going to be unlocked
+      # @param removed [#call] given the gems that follow the parent, the variants that stay as they are, but
+      #   that are going to be removed
+      # @param unneeded [#call] given the gems that follow the parent, and the variants that are going to be
+      #   removed, the gems that nothing needs any more
+      # @param roots [Enumerable<String>] the names of the gems that are in the Gemfile
+      # @param importable [#call] given the name of a gem that only the parent has, the specs of it that could be used
+      # @param retained [Set<LazySpecification>] variants of gems that stay as they are, even if the gem follows
+      #   the parent
+      # @return [Array(Hash<String, Symbol>, Set<String>)] the precedences, and the gems that are in the way
+      def converge_precedences(cache,
+                               lockfile_name,
+                               parent_lockfile_name,
+                               variants,
+                               out_of_sync,
+                               differing:,
+                               unlock:,
+                               removed:,
+                               unneeded:,
+                               roots:,
+                               importable:,
+                               retained:,
+                               gemfile_requirements:)
+        seen = Set.new
+        own_specs = cache.specs(lockfile_name)
+        # what gems are replaced with, which is all of the variants of gems that this lockfile gets
+        matched = variants.transform_values { |gem_variants| gem_variants.map(&:last).uniq }
+        effective_specs = ->(name) { matched[name] || importable.call(name) }
+
+        loop do
+          removed_now = removed.call(out_of_sync)
+          unneeded_now = unneeded.call(out_of_sync, removed_now)
+          ignored = out_of_sync | unneeded_now | unlock
+          # (a variant that stays doesn't require anything, if nothing needs the gem any more, or it's updated,
+          # or it's going to be removed)
+          kept = retained.reject do |spec|
+            unneeded_now.include?(spec.name) || unlock.include?(spec.name) || removed_now.include?(spec)
+          end
+
+          # gems that only the parent has, that gems following the parent bring along, require things too
+          # (but not gems that won't be needed any more, and only for the variants that are used)
+          following = out_of_sync - unneeded_now
+          following |= imported_gems(effective_specs, own_specs, following, roots)
+
+          blockers = Set.new
+          precedences = variants.to_h do |name, gem_variants|
+            follow_parent = true
+            blocking_gems = Set.new
+
+            gem_variants.each do |spec, parent_spec|
+              next if spec.version == parent_spec.version
+
+              blocking = cache.blocking_dependents(lockfile_name,
+                                                   name,
+                                                   parent_spec.version,
+                                                   ignored,
+                                                   retained: kept,
+                                                   gemfile_requirements:)
+
+              # something that's still needed, and not out of sync, requires this version. if that's the
+              # Gemfile, it can't be changed. if the parent lockfile is also unable to use this version, it's
+              # different on purpose, unless a gem following the parent requires it to change. otherwise it
+              # still follows the parent, and what's in the way has to be updated, to be able to
+              if blocking.include?(nil) ||
+                 (blocking.any? &&
+                  !cache.requirements_satisfied?(parent_lockfile_name, name, spec.version) &&
+                  !required_to_change?(cache.reverse_dependencies(parent_lockfile_name)[name] & following,
+                                       effective_specs,
+                                       name,
+                                       spec.version))
+                follow_parent = false
+              else
+                blocking_gems.merge(blocking)
+              end
+            end
+
+            blockers.merge(blocking_gems) if follow_parent
+            [name, follow_parent ? :parent : :self]
+          end
+
+          replaced = differing.select { |name| precedences[name] == :parent }.to_set
+          # (what a gem depends on can change which gems are needed in either direction, so it's possible,
+          # but unlikely, to go in circles. Bundler will sort out what's left over, in that case)
+          return [precedences, blockers] if replaced == out_of_sync || !seen.add?(replaced)
+
+          out_of_sync = replaced
+        end
+      end
+
+      # @!visibility private
+      # @param dependents [Enumerable<String>] gems that are following the parent, that depend on the gem in the
+      #   parent lockfile
+      # @param effective_specs [#call] given a gem's name, the specs in the parent lockfile that it's replaced with
+      # @return [true, false] if what any of the gems require from the parent lockfile excludes +version+ of +name+
+      def required_to_change?(dependents, effective_specs, name, version)
+        dependents.any? do |dependent|
+          effective_specs.call(dependent)&.any? do |spec|
+            spec.dependencies.any? do |dependency|
+              dependency.name == name && !dependency.requirement.satisfied_by?(version)
+            end
+          end
+        end
+      end
+
+      # @!visibility private
+      # @return [true, false] if syncing +spec+ to +parent_spec+ changes what it is, or what it depends on
+      def spec_changed?(spec, parent_spec)
+        return true unless spec.version == parent_spec.version
+
+        dependencies = lambda do |other|
+          other.dependencies.map { |dependency| [dependency.name, dependency.requirement.as_list.sort] }.sort
+        end
+        dependencies.call(spec) != dependencies.call(parent_spec)
+      end
+
+      # @!visibility private
+      # @param roots [Enumerable<String>] the names of the gems that are in the Gemfile
+      # @param specs [Hash<String, Hash<Object, LazySpecification>>] a lockfile's specs
+      # @param importable [#call] given the name of a gem that only the parent has, the specs of it that could be used
+      # @param following_parent [Set<String>] gems that will have their dependencies from the parent lockfile
+      # @param matched [Hash<String, Array<LazySpecification>>]
+      #   the specs in the parent lockfile that the variants of gems are replaced with
+      # @param unmatched [Hash<String, Array<LazySpecification>>]
+      #   variants of gems that stay as they are, even for gems that are following the parent
+      # @return [Set<String>] the names of the gems that are needed by the Gemfile, once the gems that are
+      #   following the parent do
+      def needed_gems(roots, specs, importable, following_parent, matched, unmatched)
+        needed = Set.new
+        pending = roots.to_a.dup
+        until pending.empty?
+          name = pending.shift
+          next unless needed.add?(name)
+
+          variants = if following_parent.include?(name) && matched.key?(name)
+                       matched[name] + unmatched.fetch(name, [])
+                     elsif specs[name]
+                       specs[name].values
+                     else
+                       # (a gem that the parent has, that this lockfile will get)
+                       importable.call(name)
+                     end
+          variants&.each { |spec| pending.concat(spec.dependencies.map(&:name)) }
+        end
+        needed
+      end
+
+      # @!visibility private
+      # @param effective_specs [#call] given a gem's name, the specs in the parent lockfile that it's replaced with
+      # @param specs [Hash<String, Hash<Object, LazySpecification>>] the lockfile's specs
+      # @param following_parent [Set<String>] gems that will have their dependencies from the parent lockfile
+      # @param roots [Enumerable<String>] the names of the gems that are in the Gemfile
+      # @return [Set<String>] the names of the gems that the parent lockfile has, that the lockfile doesn't, but
+      #   will get, because the Gemfile or the gems following the parent need them
+      def imported_gems(effective_specs, specs, following_parent, roots)
+        imported = Set.new
+        pending = following_parent.to_a
+        # (a gem that was just added to the Gemfile)
+        roots.each do |name|
+          pending << name if !specs.key?(name) && effective_specs.call(name) && imported.add?(name)
+        end
+        until pending.empty?
+          effective_specs.call(pending.shift)&.each do |spec|
+            spec.dependencies.each do |dependency|
+              next if specs.key?(dependency.name) || !imported.add?(dependency.name)
+
+              pending << dependency.name
+            end
+          end
+        end
+        imported
       end
 
       # @!visibility private
@@ -771,7 +1061,8 @@ module Bundler
                          dependency_changes: false,
                          unlocking_bundler: false,
                          added_platforms: [],
-                         removed_platforms: [])
+                         removed_platforms: [],
+                         unlock_gems: Set.new)
         prepare_block = lockfile_definition[:prepare]
 
         gemfile = lockfile_definition[:gemfile]
@@ -787,7 +1078,13 @@ module Bundler
           builder.instance_variable_set(:@ruby_version, parent_ruby_version_requirement)
         end
 
-        definition = builder.to_definition(lockfile, { bundler: unlocking_bundler })
+        unlock = { bundler: unlocking_bundler }
+        # only the gems that are in the way of syncing with the parent
+        unless unlock_gems.empty?
+          unlock[:gems] = unlock_gems.to_a
+          unlock[:conservative] = true
+        end
+        definition = builder.to_definition(lockfile, unlock)
         definition.instance_variable_set(:@dependency_changes, dependency_changes) if dependency_changes
         added_platforms.each { |platform| definition.add_platform(platform) }
         removed_platforms.each { |platform| definition.remove_platform(platform) }
