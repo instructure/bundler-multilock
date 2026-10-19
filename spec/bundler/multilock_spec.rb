@@ -1427,6 +1427,52 @@ describe Bundler::Multilock do
     end
   end
 
+  it "doesn't take a new version of a shared gem that the alternate lockfile's other gems can't support" do
+    with_gemfile(<<~RUBY) do
+      gem "strong_migrations", "2.1.0"
+
+      lockfile do
+        gem "activerecord", "7.0.8"
+      end
+
+      lockfile "Gemfile.rails-6.1.lock" do
+        gem "activerecord", "6.1.7"
+      end
+    RUBY
+      use_local_bundle_path
+      invoke_bundler("install")
+
+      write_gemfile(<<~RUBY)
+        gem "strong_migrations", "~> 2.1"
+
+        lockfile do
+          gem "activerecord", "~> 7.0.0"
+        end
+
+        lockfile "Gemfile.rails-6.1.lock" do
+          gem "activerecord", "~> 6.1.0"
+        end
+      RUBY
+      invoke_bundler("install")
+
+      alt_env = { "BUNDLE_LOCKFILE" => "Gemfile.rails-6.1.lock" }
+      expect(invoke_bundler("info strong_migrations")).to include("2.1.0")
+      expect(invoke_bundler("info activerecord")).to include("7.0.8")
+      expect(invoke_bundler("info strong_migrations", env: alt_env)).to include("2.1.0")
+      expect(invoke_bundler("info activerecord", env: alt_env)).to include("6.1.7")
+
+      # strong_migrations 2.2 needs ActiveRecord 7, so only the main lockfile can take it. It
+      # can't sync, but that must not cause the alternate lockfile to update ActiveRecord
+      output = invoke_bundler("update --conservative strong_migrations", allow_failure: true)
+
+      expect(invoke_bundler("info strong_migrations")).not_to include("2.1.0")
+      expect(invoke_bundler("info activerecord")).to include("7.0.8")
+      expect(invoke_bundler("info strong_migrations", env: alt_env)).to include("2.1.0")
+      expect(invoke_bundler("info activerecord", env: alt_env)).to include("6.1.7")
+      expect(output).to include("strong_migrations")
+    end
+  end
+
   it "keeps transitive dependencies in sync, even when the intermediate deps are conflicting" do
     orig_gemfile = <<~RUBY
       gem 'datadog', '~> 2.0'

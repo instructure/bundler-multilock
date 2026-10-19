@@ -263,6 +263,7 @@ module Bundler
                   parent_lockfile.sources.find { |s| s == source } || source
                 end
                 # replace any duplicate specs with what's in the parent lockfile
+                original_specs = lockfile.specs.dup
                 lockfile.specs.map! do |spec|
                   parent_spec = cache.find_matching_spec(parent_specs, spec)
                   next spec unless parent_spec
@@ -276,6 +277,10 @@ module Bundler
                   end
                   parent_spec
                 end
+
+                # a replaced gem can't be allowed to leave other gems' dependencies unsatisfied
+                revert_unsatisfied_replacements(lockfile.specs, original_specs)
+                dependency_changes = lockfile.specs.zip(original_specs).any? { |spec, original| spec != original }
 
                 # the parent's versions might depend on gems this lockfile didn't need before.
                 # without them, Bundler considers the lockfile broken, and ignores what's
@@ -421,6 +426,39 @@ module Bundler
         # or if it was written that way, so allow either
         relative = Pathname.new(lockfile).relative_path_from(Pathname.pwd).to_s
         (relative == "active") ? [lockfile, relative] : [lockfile]
+      end
+
+      # @!visibility private
+      # Puts back a lockfile's own version of any gem that was replaced with the parent lockfile's version,
+      # when that leaves some gem's dependencies unsatisfied. Bundler throws away everything that is
+      # locked, and re-resolves it, when a lockfile has gems like that.
+      #
+      # Repeats until nothing is unsatisfied, since putting one gem back can leave another one unsatisfied.
+      #
+      # @param specs [Array<LazySpecification>] the merged specs, modified in place
+      # @param originals [Array<LazySpecification>] what each spec in +specs+ was before it was merged
+      # @return [void]
+      def revert_unsatisfied_replacements(specs, originals)
+        loop do
+          reverted = false
+          specs.each do |spec|
+            spec.dependencies.each do |dependency|
+              candidates = specs.select { |other| other.name == dependency.name }
+              next if candidates.empty?
+              next if candidates.any? { |other| dependency.requirement.satisfied_by?(other.version) }
+
+              # either the gem with the dependency, or what it depends on, might be what changed
+              ([spec] + candidates).each do |involved|
+                index = specs.index { |other| other.equal?(involved) }
+                next if originals[index].equal?(involved)
+
+                specs[index] = originals[index]
+                reverted = true
+              end
+            end
+          end
+          break unless reverted
+        end
       end
 
       # @!visibility private
