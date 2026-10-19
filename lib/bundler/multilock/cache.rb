@@ -12,6 +12,7 @@ module Bundler
         @specs = {}
         @reverse_dependencies = {}
         @reverse_requirements = {}
+        @dependent_requirements = {}
         @base_checks = {}
         @deep_checks = {}
         @base_check_messages = {}
@@ -31,6 +32,7 @@ module Bundler
         @specs.delete(lockfile_name)
         @reverse_dependencies.delete(lockfile_name)
         @reverse_requirements.delete(lockfile_name)
+        @dependent_requirements.delete(lockfile_name)
         invalidate_checks(lockfile_name)
       end
 
@@ -92,6 +94,23 @@ module Bundler
         @reverse_requirements[lockfile_name]
       end
 
+      # Whether a version of a gem satisfies everything in a lockfile that requires it, other than
+      # the gems that are being ignored (like because they're going to change themselves).
+      #
+      # Requirements from the lockfile's own dependencies (the Gemfile) are never ignored.
+      #
+      # @param lockfile_name [Pathname]
+      # @param name [String] the gem's name
+      # @param version [Gem::Version]
+      # @param ignored_dependents [Set<String>] names of gems whose requirements shouldn't be considered
+      # @return [true, false]
+      def satisfies_requirements_excluding?(lockfile_name, name, version, ignored_dependents)
+        ensure_reverse_data(lockfile_name)
+        @dependent_requirements[lockfile_name][name].all? do |dependent, requirement|
+          ignored_dependents.include?(dependent) || requirement.satisfied_by?(version)
+        end
+      end
+
       def conflicting_requirements?(lockfile1_name, lockfile2_name, spec1, spec2)
         reverse_requirements1 = reverse_requirements(lockfile1_name)[spec1.name]
         reverse_requirements2 = reverse_requirements(lockfile2_name)[spec1.name]
@@ -134,21 +153,26 @@ module Bundler
         # can use Gem::Requirement.default_prelease when Ruby 2.6 support is dropped
         reverse_requirements = Hash.new { |h, k| h[k] = Gem::Requirement.new(">= 0.a") }
         reverse_dependencies = Hash.new { |h, k| h[k] = Set.new }
+        # name => [[dependent name (nil for the lockfile's own dependencies), Gem::Requirement]]
+        dependent_requirements = Hash.new { |h, k| h[k] = [] }
 
         lockfile = parser(lockfile_name)
 
         lockfile.dependencies.each_value do |dep|
           reverse_requirements[dep.name].requirements.concat(dep.requirement.requirements)
+          dependent_requirements[dep.name] << [nil, dep.requirement]
         end
         lockfile.specs.each do |spec|
           spec.dependencies.each do |dep|
             reverse_requirements[dep.name].requirements.concat(dep.requirement.requirements)
             reverse_dependencies[dep.name] << spec.name
+            dependent_requirements[dep.name] << [spec.name, dep.requirement]
           end
         end
 
         @reverse_requirements[lockfile_name] = reverse_requirements
         @reverse_dependencies[lockfile_name] = reverse_dependencies
+        @dependent_requirements[lockfile_name] = dependent_requirements
       end
     end
   end

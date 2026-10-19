@@ -1381,6 +1381,52 @@ describe Bundler::Multilock do
     end
   end
 
+  it "doesn't update transitive dependencies of other gems in alternate lockfiles when updating a shared gem" do
+    with_gemfile(<<~RUBY) do
+      gem "switchman", "4.3.8"
+
+      lockfile do
+        gem "rails", "8.0.5"
+      end
+
+      lockfile "Gemfile.rails-8.1.lock" do
+        gem "rails", "8.1.3"
+      end
+    RUBY
+      use_local_bundle_path
+      invoke_bundler("install")
+
+      write_gemfile(<<~RUBY)
+        gem "switchman", "~> 4.3"
+
+        lockfile do
+          gem "rails", "~> 8.0.0"
+        end
+
+        lockfile "Gemfile.rails-8.1.lock" do
+          gem "rails", "~> 8.1.0"
+        end
+      RUBY
+
+      # loosening the requirements must not update anything
+      invoke_bundler("install")
+
+      alt_env = { "BUNDLE_LOCKFILE" => "Gemfile.rails-8.1.lock" }
+      expect(invoke_bundler("info switchman")).to include("4.3.8")
+      expect(invoke_bundler("info rails")).to include("8.0.5")
+      expect(invoke_bundler("info switchman", env: alt_env)).to include("4.3.8")
+      expect(invoke_bundler("info rails", env: alt_env)).to include("8.1.3")
+
+      # only switchman should move, in both lockfiles; rails must stay put in each
+      invoke_bundler("update --conservative switchman")
+
+      expect(invoke_bundler("info switchman")).not_to include("4.3.8")
+      expect(invoke_bundler("info rails")).to include("8.0.5")
+      expect(invoke_bundler("info switchman", env: alt_env)).not_to include("4.3.8")
+      expect(invoke_bundler("info rails", env: alt_env)).to include("8.1.3")
+    end
+  end
+
   it "keeps transitive dependencies in sync, even when the intermediate deps are conflicting" do
     orig_gemfile = <<~RUBY
       gem 'datadog', '~> 2.0'
