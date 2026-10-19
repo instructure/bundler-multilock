@@ -14,6 +14,7 @@ module Bundler
         @reverse_requirements = {}
         @base_checks = {}
         @deep_checks = {}
+        @dependency_options = {}
         @base_check_messages = {}
         @deep_check_messages = {}
         @missing_specs = Set.new
@@ -40,6 +41,24 @@ module Bundler
         # must clear them all; downstream lockfiles may depend on the state of this lockfile
         @deep_checks.clear
         @deep_check_messages.clear
+      end
+
+      # @param lockfile_name [Pathname]
+      # @param options [Hash<String, Array<Hash>>]
+      #   how the lockfile's Gemfile limits the dependencies that have `platforms:` or `force_ruby_platform`, by
+      #   gem name, with a hash for each time the gem is declared. `:force_ruby` is if only the source variant is
+      #   used, and `:platforms` is the lockfile's platforms that it's for (or nil for all of them)
+      # @return [void]
+      def record_dependency_options(lockfile_name, options)
+        @dependency_options[lockfile_name] = options
+      end
+
+      # (known once the lockfile's Gemfile has been evaluated by the base check)
+      #
+      # @param lockfile_name [Pathname]
+      # @return [Hash<String, Array<Hash>>] see {#record_dependency_options}
+      def dependency_options(lockfile_name)
+        @dependency_options.fetch(lockfile_name) { {} }
       end
 
       # @param lockfile_name [Pathname]
