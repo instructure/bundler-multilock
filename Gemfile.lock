@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    bundler-multilock (2.0.0.beta6)
+    bundler-multilock (2.0.0.beta7)
       bundler (>= 4.1.0.beta3, < 4.2)
 
 GEM
@@ -126,7 +126,7 @@ DEPENDENCIES
 CHECKSUMS
   ast (2.4.3) sha256=954615157c1d6a382bc27d690d973195e79db7f55e9765ac7c481c60bdb4d383
   bundler (4.1.0.beta3) sha256=3a0dbbbb7c86af269517a9de67903472e219d3ae9edb3b6b4da7706cdc993d12
-  bundler-multilock (2.0.0.beta6)
+  bundler-multilock (2.0.0.beta7)
   debug (1.11.1) sha256=2e0b0ac6119f2207a6f8ac7d4a73ca8eb4e440f64da0a3136c30343146e952b6
   diff-lcs (1.6.2) sha256=9ae0d2cba7d4df3075fe8cd8602a8604993efc0dfa934cff568969efb1909962
   erb (6.0.7) sha256=c5ca6dc25b0ef974a44dc8f59fe847577122483b1968a38dec305c60bf91ee92
