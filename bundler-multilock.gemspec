@@ -16,5 +16,5 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = ">= 3.2"
 
-  spec.add_dependency "bundler", ">= 4.1.0.beta2", "< 4.2"
+  spec.add_dependency "bundler", ">= 4.1.0.beta3", "< 4.2"
 end

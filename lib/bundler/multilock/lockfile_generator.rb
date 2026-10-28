@@ -45,6 +45,10 @@ module Bundler
           __getobj__
         end
 
+        def overrides_to_lock
+          Array(overrides).map(&:to_lock).uniq
+        end
+
         def bundler_version_to_lock
           bundler_version
         end
