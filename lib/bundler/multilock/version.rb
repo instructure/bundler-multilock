@@ -2,6 +2,6 @@
 
 module Bundler
   module Multilock
-    VERSION = "2.0.0.beta5"
+    VERSION = "2.0.0.beta6"
   end
 end
