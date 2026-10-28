@@ -63,6 +63,7 @@ module Bundler
           definition = Bundler.with_default_lockfile(lockfile_name) do
             Definition.build(lockfile_definition[:gemfile], lockfile_name, false)
           end
+          @cache.record_dependency_options(lockfile_name, dependency_options(definition))
           unless definition.send(:current_platform_locked?)
             next base_check_failed("#{lockfile_path} does not include the current platform " \
                                    "(#{Bundler.local_platform}).")
@@ -121,6 +122,28 @@ module Bundler
         false
       end
 
+      # @param definition [Definition]
+      # @return [Hash<String, Array<Hash>>] how the Gemfile limits the variants of the gems it has dependencies
+      #   for, by gem name (see {Cache#record_dependency_options})
+      def dependency_options(definition)
+        # (a gem can be declared more than once, like in blocks for different platforms)
+        definition.dependencies.group_by(&:name).filter_map do |name, dependencies|
+          declarations = dependencies.map do |dependency|
+            platforms = if dependency.platforms.any?
+                          definition.platforms.select do |platform|
+                            dependency.expanded_platforms.include?(Gem::Platform.generic(platform))
+                          end
+                        end
+            { force_ruby: dependency.force_ruby_platform ? true : false, platforms: }
+          end
+
+          # (a declaration that isn't limited at all is for every platform, so that's what the gem is)
+          next if declarations.any? { |declaration| !declaration[:force_ruby] && declaration[:platforms].nil? }
+
+          [name, declarations]
+        end.to_h
+      end
+
       def source_changes_message(definition, lockfile_path, gemfile_path)
         locked = definition.locked_gems.sources
         current = definition.send(:sources).lock_sources
@@ -131,6 +154,36 @@ module Bundler
         message << "\n  Only in #{lockfile_path}: #{only_locked.join(", ")}" unless only_locked.empty?
         message << "\n  Only in #{gemfile_path}: #{only_current.join(", ")}" unless only_current.empty?
         message
+      end
+
+      # @param unneeded_specs [Array<LazySpecification>]
+      # @param parser [LockfileParser]
+      # @return [Array<LazySpecification>] the specs that are only in the lockfile because of the given specs
+      #   (which aren't included), because they're needed with them, and not without them
+      def specs_only_needed_by(unneeded_specs, parser)
+        specs_by_name = parser.specs.group_by(&:name)
+        reachable_without = lambda do |excluded|
+          reachable = Set.new
+          pending = parser.dependencies.keys
+          until pending.empty?
+            name = pending.shift
+            next unless reachable.add?(name)
+
+            specs_by_name[name]&.each do |spec|
+              next if excluded.any? { |unneeded| unneeded.equal?(spec) }
+
+              pending.concat(spec.dependencies.map(&:name))
+            end
+          end
+          reachable
+        end
+
+        needed = reachable_without.call([])
+        still_needed = reachable_without.call(unneeded_specs)
+        parser.specs.select do |spec|
+          needed.include?(spec.name) && !still_needed.include?(spec.name) &&
+            unneeded_specs.none? { |unneeded| unneeded.equal?(spec) }
+        end
       end
 
       # checks that every gem has a checksum, and that gems in common (same version
@@ -194,6 +247,56 @@ module Bundler
             success = false
           end
 
+          # the variants of gems don't depend on the platforms that are listed, so check them separately
+          same_source = lambda do |spec, parent_spec|
+            Multilock.same_source?(spec, parent_spec, lockfile_name, parent_lockfile_name)
+          end
+          stale_variants, missing_variants = Multilock.variant_drift(
+            parser.specs,
+            parent_parser.specs,
+            parser.platforms,
+            parent_parser.platforms,
+            dependency_names: parser.dependencies.keys,
+            dependency_options: @cache.dependency_options(lockfile_name),
+            same_source:
+          )
+          stale_variants += specs_only_needed_by(stale_variants, parser) unless stale_variants.empty?
+
+          # the source variants of gems that the parent only has other variants of don't have to be in the
+          # parent lockfile, and aren't additional dependencies (nor are the gems that only they need).
+          # (but the ones the parent does have are just like any other gem, with dependencies that are needed)
+          parent_versions = parent_parser.specs.group_by { |spec| [spec.name, spec.version] }
+          source_variants = parser.specs.select do |spec|
+            next false unless spec.platform == Gem::Platform::RUBY
+            next false unless (parent_variants = parent_versions[[spec.name, spec.version]])
+
+            parent_variants.none? { |parent_spec| parent_spec.platform == Gem::Platform::RUBY } &&
+              parent_variants.any? do |parent_spec|
+                Multilock.same_source?(spec, parent_spec, lockfile_name, parent_lockfile_name)
+              end
+          end
+          exempt_from_pins = stale_variants + source_variants
+          exempt_from_pins += specs_only_needed_by(exempt_from_pins, parser) unless source_variants.empty?
+          unless stale_variants.empty? && missing_variants.empty?
+            parent_path = parent_lockfile_name.relative_path_from(Dir.pwd)
+            if stale_variants.any?
+              Bundler.ui.error("#{lockfile_path} has gem variants that #{parent_path} doesn't " \
+                               "(#{stale_variants.map { |spec| spec.lock_name.strip }.join(", ")}), " \
+                               "so it is out of sync with it.")
+            end
+            if missing_variants.any?
+              Bundler.ui.error("#{lockfile_path} is missing gem variants that #{parent_path} has " \
+                               "(#{missing_variants.map { |spec| spec.lock_name.strip }.join(", ")}), " \
+                               "so it is out of sync with it.")
+            end
+            if Bundler.frozen_bundle?
+              Bundler.ui.error("That can't be fixed while the bundle is frozen. Run `bundle install` " \
+                               "without frozen mode, and commit the updated #{lockfile_path}.")
+            end
+            success = false
+          end
+          exempt_from_pins = exempt_from_pins.to_set { |spec| [spec.name, spec.version] }
+
           # look through top-level explicit dependencies for pinned requirements
           if lockfile_definition[:enforce_pinned_additional_dependencies]
             find_pinned_dependencies(proven_pinned, parser.dependencies.each_value)
@@ -207,23 +310,14 @@ module Bundler
               # look through what this spec depends on, and keep track of all pinned requirements
               find_pinned_dependencies(proven_pinned, spec.dependencies)
 
-              needs_pin_check << spec unless parent_spec
+              # (already reported, and not actually additional)
+              needs_pin_check << spec unless parent_spec || exempt_from_pins.include?([spec.name, spec.version])
             end
 
             next unless parent_spec
 
-            # have to ensure Path sources are relative to their lockfile before comparing
-            same_source = if [parent_spec.source, spec.source].grep(Source::Path).length == 2
-                            lockfile_name
-                              .dirname
-                              .join(spec.source.path)
-                              .ascend
-                              .any?(parent_lockfile_name.dirname.join(parent_spec.source.path))
-                          else
-                            parent_spec.source == spec.source
-                          end
-
-            next if parent_spec.version == spec.version && same_source
+            next if parent_spec.version == spec.version &&
+                    Multilock.same_source?(spec, parent_spec, lockfile_name, parent_lockfile_name)
 
             # the version in the parent lockfile cannot possibly satisfy the requirements
             # in this lockfile, and vice versa, so we assume it's intentional and allow it

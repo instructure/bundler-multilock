@@ -293,6 +293,37 @@ module Bundler
                 # so that it also adds or removes the gems needed for them
                 removed_platforms = lockfile.platforms - parent_lockfile.platforms
                 added_platforms = parent_lockfile.platforms - lockfile.platforms
+
+                # the lockfiles can agree on platforms, but still not on the variants of gems for them (perhaps
+                # due to merging of semantics conflicts), so clean up and/or add any missing variants.
+                # (the parent lockfile's specs have had their paths rebased to be relative to this lockfile)
+                same_source = lambda do |spec, parent_spec|
+                  same_source?(spec, parent_spec, lockfile_name, lockfile_name)
+                end
+                stale_variants, missing_variants = variant_drift(
+                  lockfile.specs,
+                  parent_lockfile.specs,
+                  lockfile.platforms,
+                  parent_lockfile.platforms,
+                  dependency_names: lockfile.dependencies.keys,
+                  dependency_options: cache.dependency_options(lockfile_name),
+                  same_source:
+                )
+                stale_variants.map(&:platform).uniq.each do |platform|
+                  entries = matching_platforms(lockfile.platforms, platform)
+                  # Bundler can only remove a platform that's listed (and gems can have variants for
+                  # platforms, like ruby, that never are)
+                  lockfile.platforms << platform if entries.empty?
+                  removed_platforms |= entries.empty? ? [platform] : entries
+                end
+                missing_variants.map(&:platform).uniq.each do |platform|
+                  # (only platforms that the parent still lists)
+                  entries = matching_platforms(lockfile.platforms, platform) & parent_lockfile.platforms
+                  # and it can only add a platform that isn't listed
+                  lockfile.platforms.reject! { |entry| entries.include?(entry) }
+                  added_platforms |= entries
+                end
+                removed_platforms -= added_platforms
                 lockfile.instance_variable_set(:@ruby_version, parent_lockfile.ruby_version)
                 unless lockfile.bundler_version == parent_lockfile.bundler_version
                   unlocking_bundler = parent_lockfile.bundler_version
@@ -391,6 +422,206 @@ module Bundler
         # or if it was written that way, so allow either
         relative = Pathname.new(lockfile).relative_path_from(Pathname.pwd).to_s
         (relative == "active") ? [lockfile, relative] : [lockfile]
+      end
+
+      # @!visibility private
+      # Finds variants of gems (a gem version for a particular platform) that are in only one of two lockfiles,
+      # even though both of them have that version of the gem (or this one has a version left behind next to
+      # one the parent has), and the platform is one that only one of them is for. The source variant of a
+      # gem is never stale for a version of it that the parent lockfile has.
+      #
+      # The lockfiles can't be compared by their platforms alone, since gems can have variants for platforms
+      # (like ruby) that aren't listed, and what gems this lockfile needs on each platform depends on what its
+      # Gemfile declares (see {#gems_needed_on}). A variant is only missing if this lockfile needs the gem for
+      # the platform, and would use that variant.
+      #
+      # Gems that this lockfile has `platforms:` or `force_ruby_platform` for, and gems that it gets from a
+      # different source than the parent lockfile does, aren't expected to have the same variants.
+      #
+      # @param specs [Array<LazySpecification>]
+      # @param parent_specs [Array<LazySpecification>]
+      # @param platforms [Array<Gem::Platform, String>] the platforms listed in the lockfile for +specs+
+      # @param parent_platforms [Array<Gem::Platform, String>] the platforms listed in the parent lockfile
+      # @param dependency_names [Array<String>, nil]
+      #   the gems that are dependencies in the Gemfile for +specs+ (nil if it's not known, so any gem is needed)
+      # @param dependency_options [Hash<String, Array<Hash>>] see {Cache#record_dependency_options}
+      # @param same_source [#call] given a spec and a parent lockfile spec, if they're from the same source
+      # @return [Array(Array<LazySpecification>, Array<LazySpecification>)]
+      #   the variants only in +specs+ (that the parent lockfile's platforms don't include), and the ones only in
+      #   +parent_specs+ (that +platforms+ do include, and +specs+ need)
+      def variant_drift(specs,
+                        parent_specs,
+                        platforms,
+                        parent_platforms,
+                        dependency_names: nil,
+                        dependency_options: {},
+                        same_source: ->(spec, parent_spec) { spec.source == parent_spec.source })
+        ours = specs.group_by { |spec| [spec.name, spec.version] }
+        theirs = parent_specs.group_by { |spec| [spec.name, spec.version] }
+        ours_by_name = specs.group_by(&:name)
+
+        # a version of a gem that the parent doesn't have is left behind (instead of intentionally different)
+        # if this lockfile also has a version of that gem that the parent lockfile does have
+        left_behind = lambda do |spec|
+          ours_by_name[spec.name].any? do |other|
+            other.version != spec.version &&
+              theirs[[other.name, other.version]]&.any? { |parent| same_platform?(parent.platform, other.platform) }
+          end
+        end
+
+        # (other variants of the gem from a different source are expected to be different)
+        # (and the source of this lockfile's spec is always the first one to compare)
+        from_same_source = ->(spec, parents) { parents.any? { |parent| same_source.call(spec, parent) } }
+
+        stale = specs.select do |spec|
+          next false if matching_platforms(parent_platforms, spec.platform).any?
+          # Bundler keeps (or adds) the source variant of a gem next to the platform specific ones, whether
+          # or not the ruby platform is listed, so it's not stale for a version of the gem that the parent has
+          next false if spec.platform == Gem::Platform::RUBY && theirs.key?([spec.name, spec.version])
+
+          if (parent_variants = theirs[[spec.name, spec.version]])
+            from_same_source.call(spec, parent_variants) &&
+              parent_variants.none? { |parent| same_platform?(parent.platform, spec.platform) }
+          else
+            left_behind.call(spec)
+          end
+        end
+
+        # the variants of the parent lockfile that this lockfile would use, for the platforms they both have,
+        # when it doesn't have a variant it can use instead on that platform
+        missing = Set.new
+        platforms.each do |platform|
+          next if parent_platforms.none? { |other| same_platform?(other, platform) }
+
+          gems_needed_on(platform, ours_by_name, dependency_names, dependency_options).each do |name, force_ruby|
+            # (a gem that's forced to the ruby platform only uses its source variant)
+            target = force_ruby ? Gem::Platform::RUBY : platform
+
+            # (not every gem that's needed is in the lockfile, like bundler itself)
+            ours_by_name.fetch(name, []).map(&:version).uniq.each do |version|
+              next unless (parent_variants = theirs[[name, version]])
+
+              variants = ours[[name, version]]
+              MatchPlatform.select_best_platform_match(parent_variants, target).each do |expected|
+                # (both lockfiles have to list the platform. if the parent doesn't, its variant is just a
+                # source variant that Bundler kept, and this lockfile having removed the platform is what
+                # needs to sync)
+                next unless matching_platforms(platforms, expected.platform).any? &&
+                            matching_platforms(parent_platforms, expected.platform).any?
+                next unless variants.any? { |variant| same_source.call(variant, expected) }
+
+                missing << expected unless usable_instead?(variants, expected, target)
+              end
+            end
+          end
+        end
+        missing = missing.to_a
+
+        [stale, missing]
+      end
+
+      # @!visibility private
+      # If a variant of a gem (that the lockfile has) could be used on a platform in place of a variant of the
+      # same gem from the parent lockfile, because it's at least as specific to the platform.
+      #
+      # @param variants [Array<LazySpecification>] the variants of the gem that the lockfile has
+      # @param expected [LazySpecification] the variant of the gem from the parent lockfile
+      # @param platform [Gem::Platform, String] the platform the variants would be used for
+      def usable_instead?(variants, expected, platform)
+        specificity = ->(spec) { Gem::Platform.platform_specificity_match(spec.platform, platform) }
+
+        MatchPlatform.select_best_platform_match(variants, platform).any? do |variant|
+          specificity.call(variant) <= specificity.call(expected)
+        end
+      end
+
+      # @!visibility private
+      # The gems that a Gemfile needs on a platform, the same way Bundler works them out for a lockfile
+      # (see Bundler::Materialization): starting with the dependencies in the Gemfile that are for the
+      # platform, and then what the variant of each gem that would be used for the platform depends on.
+      # (A variant of a gem for a different platform may depend on different gems.)
+      #
+      # A gem can be declared in the Gemfile more than once, such as for different platforms, and only the
+      # declarations for the platform are considered.
+      #
+      # @param platform [Gem::Platform, String] one of the platforms listed in the lockfile
+      # @param specs_by_name [Hash<String, Array<LazySpecification>>] the specs of the lockfile
+      # @param dependency_names [Array<String>, nil] the gems that are dependencies in the Gemfile
+      #   (nil if it's not known, so any gem is needed)
+      # @param dependency_options [Hash<String, Array<Hash>>] see {Cache#record_dependency_options}
+      # @return [Hash<String, true or false>] the gems that are needed, and if only the source variant is used
+      def gems_needed_on(platform, specs_by_name, dependency_names, dependency_options)
+        declarations_for = lambda do |name|
+          dependency_options.fetch(name, []).select do |declaration|
+            declaration[:platforms].nil? || declaration[:platforms].any? { |other| same_platform?(other, platform) }
+          end
+        end
+
+        pending = if dependency_names
+                    dependency_names.select do |name|
+                      !dependency_options.key?(name) || declarations_for.call(name).any?
+                    end
+                  else
+                    specs_by_name.keys
+                  end
+
+        needed = {}
+        until pending.empty?
+          name = pending.shift
+          next if needed.key?(name)
+
+          declarations = declarations_for.call(name)
+          force_ruby = declarations.any? && declarations.all? { |declaration| declaration[:force_ruby] }
+          needed[name] = force_ruby
+          next unless (variants = specs_by_name[name])
+
+          # (not `force_ruby:`, since that changes the specs)
+          selected = MatchPlatform.select_best_platform_match(variants, force_ruby ? Gem::Platform::RUBY : platform)
+          selected.each { |spec| pending.concat(spec.dependencies.map(&:name)) }
+        end
+        needed
+      end
+
+      # @!visibility private
+      # @return [true, false] if two specs, from different lockfiles, are from the same source
+      def same_source?(spec, parent_spec, lockfile_name, parent_lockfile_name)
+        # have to ensure Path sources are relative to their lockfile before comparing
+        if [parent_spec.source, spec.source].grep(Source::Path).length == 2
+          lockfile_name
+            .dirname
+            .join(spec.source.path)
+            .ascend
+            .any?(parent_lockfile_name.dirname.join(parent_spec.source.path))
+        else
+          parent_spec.source == spec.source
+        end
+      end
+
+      # @!visibility private
+      # @return [true, false] if gems for each platform could be used for the other (since a gem
+      #   for Linux can be used for musl, but a musl gem can't be used for Linux), and both are for the same
+      #   CPU (since a gem for a universal CPU can be used for any, but isn't the same as one for a specific one)
+      def same_platform?(platform, other)
+        return platform == other unless platform.is_a?(Gem::Platform) && other.is_a?(Gem::Platform)
+
+        platform.cpu == other.cpu &&
+          platform === other && other === platform # rubocop:disable Style/CaseEquality -- Gem::Platform's match
+      end
+
+      # @!visibility private
+      # @param platforms [Array<Gem::Platform, String>] platforms listed in a lockfile
+      # @param platform [Gem::Platform, String] the platform of a gem variant
+      # @return [Array<Gem::Platform, String>] the listed platforms that the variant could be used for
+      def matching_platforms(platforms, platform)
+        # (a gem for Linux can be used on musl, but not the other way around, and only the ruby platform
+        # uses source variants)
+        platforms.select do |other|
+          if platform.is_a?(Gem::Platform) && other.is_a?(Gem::Platform)
+            platform === other # rubocop:disable Style/CaseEquality -- Gem::Platform's match
+          else
+            platform == other
+          end
+        end
       end
 
       # @!visibility private
