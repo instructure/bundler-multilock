@@ -2,7 +2,7 @@
 
 ## Running tests
 
-- Match CI: `BUNDLER_VERSION=4.1.0.beta2 BUNDLE_LOCKFILE=active bin/rspec`. Specs shell out to real Bundler
+- Match CI: `BUNDLER_VERSION=4.1.0.beta3 BUNDLE_LOCKFILE=active bin/rspec`. Specs shell out to real Bundler
   against rubygems.org, so they need network access and take about a minute per Ruby.
 - Specs pin real gem versions, so new upstream releases can break them (this has happened with minitest 6,
   activemodel 8.1, and a removed rspecq commit). Before assuming a failure is a regression, check whether `main`
@@ -30,5 +30,5 @@
 - Bundler always locks a gem's source variant as a fallback. A precompiled gem's Ruby upper bound never makes a
   version truly incompatible. To test an incompatible Ruby, use pure-Ruby gems with an upper bound (see the
   datadog/ddtrace spec).
-- With Bundler 4.1.0.beta2 and RubyGems older than 4.1, `bundle env` crashes for any plugin. The
+- With Bundler 4.1.0.beta3 and RubyGems older than 4.1, `bundle env` crashes for any plugin. The
   "doesn't break env" spec is `pending` for that, so it fails loudly once Bundler fixes it.

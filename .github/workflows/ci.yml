@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         ruby-version: [3.2, 3.3, 3.4, "4.0", "jruby-10.0", "jruby-10.1"]
-        bundler-version: [4.1.0.beta2]
+        bundler-version: [4.1.0.beta3]
     env:
       BUNDLER_VERSION: ${{ matrix.bundler-version }}
       BUNDLE_LOCKFILE: active
@@ -44,7 +44,7 @@ jobs:
         with:
           ruby-version: 3.2
           bundler-cache: true
-          bundler: 4.1.0.beta2
+          bundler: 4.1.0.beta3
           rubygems: latest
       - name: Run RuboCop
         run: bin/rubocop
