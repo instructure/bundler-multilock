@@ -12,6 +12,7 @@ module Bundler
         @specs = {}
         @reverse_dependencies = {}
         @reverse_requirements = {}
+        @dependent_requirements = {}
         @base_checks = {}
         @deep_checks = {}
         @dependency_options = {}
@@ -32,6 +33,7 @@ module Bundler
         @specs.delete(lockfile_name)
         @reverse_dependencies.delete(lockfile_name)
         @reverse_requirements.delete(lockfile_name)
+        @dependent_requirements.delete(lockfile_name)
         invalidate_checks(lockfile_name)
       end
 
@@ -111,6 +113,46 @@ module Bundler
         @reverse_requirements[lockfile_name]
       end
 
+      # The gems in a lockfile whose requirements a version of a gem doesn't satisfy, other than
+      # the gems that are being ignored (like because they're going to change themselves).
+      #
+      # Requirements from the lockfile's own dependencies (the Gemfile) are never ignored.
+      #
+      # @param lockfile_name [Pathname]
+      # @param name [String] the gem's name
+      # @param version [Gem::Version]
+      # @param ignored_dependents [Set<String>] names of gems whose requirements shouldn't be considered
+      # @param retained [Set<LazySpecification>] variants of gems that are still considered, even if the gem is ignored
+      # @param gemfile_requirements [Hash<String, Gem::Requirement>, nil]
+      #   the requirements of the lockfile's Gemfile, if they might be different from what's in the lockfile
+      # @return [Array<String, nil>] the names of the gems (or nil, for the Gemfile)
+      def blocking_dependents(lockfile_name,
+                              name,
+                              version,
+                              ignored_dependents,
+                              retained: nil,
+                              gemfile_requirements: nil)
+        ensure_reverse_data(lockfile_name)
+        blocking = []
+        @dependent_requirements[lockfile_name][name].each do |dependent, requirement, spec|
+          next if ignored_dependents.include?(dependent) && !retained&.include?(spec)
+          # (the lockfile's version of the Gemfile's requirements is replaced below)
+          next if dependent.nil? && gemfile_requirements
+
+          blocking << dependent unless requirement.satisfied_by?(version)
+        end
+        blocking << nil if gemfile_requirements&.key?(name) && !gemfile_requirements[name].satisfied_by?(version)
+        blocking.uniq
+      end
+
+      # @param lockfile_name [Pathname]
+      # @param name [String] the gem's name
+      # @param version [Gem::Version]
+      # @return [true, false] if a version of a gem satisfies everything in a lockfile that requires it
+      def requirements_satisfied?(lockfile_name, name, version)
+        reverse_requirements(lockfile_name)[name].satisfied_by?(version)
+      end
+
       def conflicting_requirements?(lockfile1_name, lockfile2_name, spec1, spec2)
         reverse_requirements1 = reverse_requirements(lockfile1_name)[spec1.name]
         reverse_requirements2 = reverse_requirements(lockfile2_name)[spec1.name]
@@ -153,21 +195,26 @@ module Bundler
         # can use Gem::Requirement.default_prelease when Ruby 2.6 support is dropped
         reverse_requirements = Hash.new { |h, k| h[k] = Gem::Requirement.new(">= 0.a") }
         reverse_dependencies = Hash.new { |h, k| h[k] = Set.new }
+        # name => [[dependent name, Gem::Requirement, dependent spec]] (nil for the lockfile's own dependencies)
+        dependent_requirements = Hash.new { |h, k| h[k] = [] }
 
         lockfile = parser(lockfile_name)
 
         lockfile.dependencies.each_value do |dep|
           reverse_requirements[dep.name].requirements.concat(dep.requirement.requirements)
+          dependent_requirements[dep.name] << [nil, dep.requirement, nil]
         end
         lockfile.specs.each do |spec|
           spec.dependencies.each do |dep|
             reverse_requirements[dep.name].requirements.concat(dep.requirement.requirements)
             reverse_dependencies[dep.name] << spec.name
+            dependent_requirements[dep.name] << [spec.name, dep.requirement, spec]
           end
         end
 
         @reverse_requirements[lockfile_name] = reverse_requirements
         @reverse_dependencies[lockfile_name] = reverse_dependencies
+        @dependent_requirements[lockfile_name] = dependent_requirements
       end
     end
   end

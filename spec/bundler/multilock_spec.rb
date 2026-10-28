@@ -1663,6 +1663,114 @@ describe Bundler::Multilock do
     end
   end
 
+  it "doesn't update transitive dependencies of other gems in alternate lockfiles when updating a shared gem" do
+    with_gemfile(<<~RUBY) do
+      gem "switchman", "4.3.8"
+
+      lockfile do
+        gem "rails", "8.0.5"
+      end
+
+      lockfile "Gemfile.rails-8.1.lock" do
+        gem "rails", "8.1.3"
+      end
+    RUBY
+      use_local_bundle_path
+      invoke_bundler("install")
+
+      write_gemfile(<<~RUBY)
+        gem "switchman", "~> 4.3"
+
+        lockfile do
+          gem "rails", "~> 8.0.0"
+        end
+
+        lockfile "Gemfile.rails-8.1.lock" do
+          gem "rails", "~> 8.1.0"
+        end
+      RUBY
+
+      # loosening the requirements must not update anything
+      invoke_bundler("install")
+
+      alt_env = { "BUNDLE_LOCKFILE" => "Gemfile.rails-8.1.lock" }
+      expect(invoke_bundler("info switchman")).to include("4.3.8")
+      expect(invoke_bundler("info rails")).to include("8.0.5")
+      expect(invoke_bundler("info switchman", env: alt_env)).to include("4.3.8")
+      expect(invoke_bundler("info rails", env: alt_env)).to include("8.1.3")
+
+      # only switchman should move, in both lockfiles; rails must stay put in each
+      invoke_bundler("update --conservative switchman")
+
+      expect(invoke_bundler("info switchman")).not_to include("4.3.8")
+      expect(invoke_bundler("info rails")).to include("8.0.5")
+      expect(invoke_bundler("info switchman", env: alt_env)).not_to include("4.3.8")
+      expect(invoke_bundler("info rails", env: alt_env)).to include("8.1.3")
+    end
+  end
+
+  it "uses the Gemfile's requirements when syncing, when they're loosened and gems updated at the same time" do
+    with_gemfile(<<~RUBY) do
+      gem "rubocop", "1.45.0"
+      gem "parser", "3.2.1.0"
+
+      lockfile {}
+      lockfile("Gemfile.alt.lock") {}
+    RUBY
+      use_local_bundle_path
+      invoke_bundler("install")
+
+      # the lockfiles still require parser to be exactly 3.2.1.0
+      write_gemfile(<<~RUBY)
+        gem "rubocop", "~> 1.45"
+        gem "parser", ">= 3.2.1.0"
+
+        lockfile {}
+        lockfile("Gemfile.alt.lock") {}
+      RUBY
+      invoke_bundler("update --conservative rubocop parser")
+
+      # nothing else should move in the main lockfile, and the alternate lockfile should match it
+      expect(invoke_bundler("info parser --version").strip).not_to eq("3.2.1.0")
+      expect(File.read("Gemfile.alt.lock")[/^GEM\n.*?\n\n/m]).to eq(File.read("Gemfile.lock")[/^GEM\n.*?\n\n/m])
+    end
+  end
+
+  it "updates gems that are only in an alternate lockfile when they're in the way of syncing" do
+    with_gemfile(<<~RUBY) do
+      gem "activesupport", "7.0.8"
+      gem "minitest", "~> 5.25"
+
+      lockfile {}
+
+      lockfile "Gemfile.alt.lock" do
+        gem "activerecord", "7.0.8"
+      end
+    RUBY
+      use_local_bundle_path
+      invoke_bundler("install")
+
+      # activerecord, which is only in the alternate lockfile, requires exactly activesupport 7.0.8
+      write_gemfile(<<~RUBY)
+        gem "activesupport", ">= 7.0.8"
+        gem "minitest", "~> 5.25"
+
+        lockfile {}
+
+        lockfile "Gemfile.alt.lock" do
+          gem "activerecord", ">= 7.0.8"
+        end
+      RUBY
+      invoke_bundler("update --conservative activesupport")
+
+      alt_env = { "BUNDLE_LOCKFILE" => "Gemfile.alt.lock" }
+      version = invoke_bundler("info activesupport --version").strip
+      expect(version).not_to eq("7.0.8")
+      expect(invoke_bundler("info activesupport --version", env: alt_env).strip).to eq(version)
+      expect(invoke_bundler("info activerecord --version", env: alt_env).strip).to eq(version)
+    end
+  end
+
   it "keeps transitive dependencies in sync, even when the intermediate deps are conflicting" do
     orig_gemfile = <<~RUBY
       gem 'datadog', '~> 2.0'
