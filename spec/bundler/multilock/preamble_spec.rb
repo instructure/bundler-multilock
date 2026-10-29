@@ -423,4 +423,30 @@ describe Bundler::Multilock::Preamble do
       expect(File.read("Gemfile")).to eq gemfile
     end
   end
+
+  it "does not inject the preamble into an alternate Gemfile that's loaded from the plugin index" do
+    with_gemfile(<<~RUBY) do
+      lockfile("alt", gemfile: "alt/Gemfile", lockfile: "alt/Gemfile.lock")
+    RUBY
+      FileUtils.mkdir_p("alt")
+      alt_gemfile = <<~RUBY
+        source "https://rubygems.org"
+      RUBY
+      File.write("alt/Gemfile", alt_gemfile)
+
+      # the preamble is expected in the main Gemfile after installing the plugin
+      local_path = Shellwords.escape(plugin_path)
+      invoke_bundler("plugin install bundler-multilock --path=#{local_path}")
+      expect(File.read("Gemfile")).to include("bundler-multilock")
+
+      # the plugin index lives in the app config directory, which is normally next to the Gemfile.
+      # Pointing at the main one makes the plugin load for every bundle command, even when
+      # the Gemfile doesn't mention it
+      invoke_bundler("list",
+                     env: { "BUNDLE_GEMFILE" => "alt/Gemfile",
+                            "BUNDLE_APP_CONFIG" => File.join(Dir.pwd, ".bundle") })
+
+      expect(File.read("alt/Gemfile")).to eq alt_gemfile
+    end
+  end
 end

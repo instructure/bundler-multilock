@@ -925,6 +925,16 @@ module Bundler
       end
 
       # @!visibility private
+      # Whether plugins.rb is being loaded by `bundle plugin install` (or a
+      # Gemfile's `plugin` command), as opposed to being loaded from the plugin
+      # index for some other bundle command
+      def installing_plugin?
+        caller_locations.any? do |location|
+          location.base_label == "register_plugin" && location.path.end_with?("bundler/plugin.rb")
+        end
+      end
+
+      # @!visibility private
       def cli_loaded?
         Bundler.autoload?(:CLI).nil? && !defined?(Bundler::CLI).nil?
       end
@@ -1226,7 +1236,9 @@ module Bundler
   end
 end
 
-Bundler::Multilock::Preamble.inject unless Bundler::Multilock.loaded? || Bundler.frozen_bundle?
+if Bundler::Multilock.installing_plugin? && !Bundler::Multilock.loaded? && !Bundler.frozen_bundle?
+  Bundler::Multilock::Preamble.inject
+end
 
 if Bundler::Multilock.cli_loaded?
   require_relative "multilock/ext/cli"
