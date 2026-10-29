@@ -398,6 +398,53 @@ describe Bundler::Multilock do
         end
       end
 
+      # an app with a lockfile whose Gemfile is in sub/, which declares the given path gems
+      def with_sub_gemfile(sub_gems)
+        Dir.mktmpdir do |outer|
+          Dir.chdir(outer) { create_local_gem("outside_gem") }
+          app = File.join(outer, "app")
+          FileUtils.mkdir_p(File.join(app, "sub"))
+
+          Dir.chdir(app) do
+            create_local_gem("inside_gem")
+            File.write("sub/Gemfile", <<~RUBY)
+              source "https://rubygems.org"
+
+              #{sub_gems}
+            RUBY
+            write_gemfile(<<~RUBY)
+              lockfile do
+                gem "rake", "13.2.1"
+              end
+
+              lockfile "sub/Gemfile.lock", gemfile: "sub/Gemfile"
+            RUBY
+            invoke_bundler("config frozen false")
+            use_local_bundle_path
+            invoke_bundler("install")
+            yield
+          end
+        end
+      end
+
+      it "resolves relative paths from the alternate Gemfile's directory" do
+        with_sub_gemfile('gem "outside_gem", path: "../../outside_gem"') do
+          output = invoke_bundler("cache")
+
+          expect(output).not_to include("source at")
+          expect(File.directory?("vendor/cache/outside_gem")).to be true
+        end
+      end
+
+      it "doesn't cache ones inside the project, even outside the alternate Gemfile's directory" do
+        with_sub_gemfile('gem "inside_gem", path: "../inside_gem"') do
+          invoke_bundler("cache")
+
+          expect(File.directory?("vendor/cache/inside_gem")).to be false
+          expect(cached_gems).to include("rake-13.2.1")
+        end
+      end
+
       it "doesn't cache them with BUNDLE_CACHE_ALL=false" do
         with_alternate_path_gem do
           invoke_bundler("cache", env: { "BUNDLE_CACHE_ALL" => "false" })

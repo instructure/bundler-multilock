@@ -117,7 +117,18 @@ module Bundler
               if source.respond_to?(:migrate_cache)
                 source.migrate_cache(custom_path, local: false)
               elsif source.respond_to?(:cache)
-                source.cache(spec, custom_path)
+                # like Bundler, leave path gems that are inside the project alone, even when they're
+                # outside the directory of the Gemfile that declared them
+                next if source.instance_of?(::Bundler::Source::Path) &&
+                        source.send(:expanded_original_path).to_s.start_with?("#{Bundler.root}/")
+
+                if source.respond_to?(:root_path) && source.root_path.exist?
+                  # (it also memoizes the cache path while Bundler.root is that Gemfile's directory)
+                  source.instance_variable_set(:@app_cache_path, cache_path.join(source.app_cache_dirname))
+                  Dir.chdir(source.root_path) { source.cache(spec, custom_path) }
+                else
+                  source.cache(spec, custom_path)
+                end
               end
             end
           end
