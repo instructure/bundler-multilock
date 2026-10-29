@@ -119,7 +119,7 @@ module Bundler
               elsif source.respond_to?(:cache)
                 # like Bundler, leave path gems that are inside the project alone, even when they're
                 # outside the directory of the Gemfile that declared them
-                next if source.is_a?(::Bundler::Source::Path) &&
+                next if source.instance_of?(::Bundler::Source::Path) &&
                         source.send(:expanded_original_path).to_s.start_with?("#{Bundler.root}/")
 
                 if source.respond_to?(:root_path) && source.root_path.exist?
