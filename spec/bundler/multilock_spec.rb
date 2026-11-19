@@ -65,6 +65,29 @@ describe Bundler::Multilock do
     end
   end
 
+  it "rejects a bare lockfile name mixed with Multilock's lockfiles" do
+    with_gemfile(<<~RUBY) do
+      lockfile "Gemfile.bare.lock"
+      lockfile "Gemfile.alt.lock" do
+        gem "concurrent-ruby", "1.2.2"
+      end
+    RUBY
+      output = invoke_bundler("install", allow_failure: true)
+
+      expect(output).to include(%(`lockfile "Gemfile.bare.lock"` without a block or options))
+    end
+  end
+
+  it "allows a bare lockfile name without Multilock's lockfiles" do
+    with_gemfile(<<~RUBY) do
+      lockfile "Gemfile.bare.lock"
+    RUBY
+      invoke_bundler("install")
+
+      expect(File).to exist("Gemfile.bare.lock")
+    end
+  end
+
   it "generates custom lockfiles with varying versions" do
     with_gemfile(<<~RUBY) do
       lockfile do

@@ -30,6 +30,7 @@ module Bundler
             prepare_block ||= Multilock.lockfile_definitions.dig(lockfile, :prepare) if Multilock.loaded?
             builder.eval_gemfile(gemfile, &prepare_block) if prepare_block
             builder.eval_gemfile(gemfile)
+            reject_unmanaged_lockfile(builder.lockfile_path)
             if (ruby_version_requirement = builder.instance_variable_get(:@ruby_version)) &&
                Multilock.lockfile_definitions[lockfile]
               Multilock.lockfile_definitions[lockfile][:ruby_version_requirement] = ruby_version_requirement
@@ -40,6 +41,20 @@ module Bundler
             end
             Multilock.loaded!
             builder.to_definition(lockfile, unlock)
+          end
+
+          private
+
+          # A bare `lockfile "name"` replaces the lockfile that Multilock syncs from,
+          # so the alternate lockfiles would sync from a lockfile that's never written
+          def reject_unmanaged_lockfile(lockfile)
+            return if lockfile.nil? || Multilock.lockfile_definitions.empty?
+
+            raise GemfileError,
+                  "`lockfile #{lockfile.to_s.inspect}` without a block or options is Bundler's own setting, " \
+                  "which makes it the main lockfile instead of #{Bundler.default_lockfile.basename}, and " \
+                  "bundler-multilock can't sync from it. Pass a block or `active:` to declare it as a " \
+                  "Multilock lockfile."
           end
         end
 

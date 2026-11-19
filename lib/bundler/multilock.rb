@@ -33,7 +33,10 @@ module Bundler
       #   default lockfile, enforce that they are pinned.
       # @yield
       #   Block executed only when this lockfile is active.
-      # @return [true, false] if the lockfile is the active lockfile
+      # @return [true, false] false if the lockfile is active and uses a different
+      #   Gemfile, which was evaluated in place of the rest of this one; otherwise
+      #   true. (It isn't whether the lockfile is active: once Multilock is loaded,
+      #   `lockfile` returns true without doing anything.)
       def add_lockfile(lockfile = nil, # rubocop:disable Naming/PredicateMethod -- not a predicate
                        builder:,
                        gemfile: nil,
