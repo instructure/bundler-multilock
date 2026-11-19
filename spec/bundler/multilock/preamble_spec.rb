@@ -20,8 +20,7 @@ describe Bundler::Multilock::Preamble do
         source "https://rubygems.org"
 
         plugin "bundler-multilock", "#{plugin_requirement}"
-        return unless Plugin.loaded?("bundler-multilock")
-
+        #{plugin_fallback}
         gem "concurrent-ruby", "1.2.2"
       RUBY
     end
@@ -49,8 +48,7 @@ describe Bundler::Multilock::Preamble do
         source "https://rubygems.org"
 
         plugin "bundler-multilock", "#{plugin_requirement}"
-        return unless Plugin.loaded?("bundler-multilock")
-
+        #{plugin_fallback}
         gem "concurrent-ruby", "1.2.2"
 
         # a comment
@@ -71,8 +69,7 @@ describe Bundler::Multilock::Preamble do
         source "https://rubygems.org"
         #
         plugin "bundler-multilock", "#{plugin_requirement}"
-        return unless Plugin.loaded?("bundler-multilock")
-
+        #{plugin_fallback}
       RUBY
     end
   end
@@ -88,8 +85,7 @@ describe Bundler::Multilock::Preamble do
         source "https://rubygems.org"
         # the end
         plugin "bundler-multilock", "#{plugin_requirement}"
-        return unless Plugin.loaded?("bundler-multilock")
-
+        #{plugin_fallback}
       RUBY
     end
   end
@@ -291,7 +287,7 @@ describe Bundler::Multilock::Preamble do
       gemfile = File.read("Gemfile")
       expect(gemfile).to include(<<~RUBY)
         plugin "bundler-multilock", "#{plugin_requirement}"
-        return unless Plugin.loaded?("bundler-multilock")
+        #{plugin_fallback}
       RUBY
       # the template and comment are untouched
       expect(gemfile).to include(%(# return unless Plugin.loaded?("bundler-multilock")\n))
@@ -343,8 +339,7 @@ describe Bundler::Multilock::Preamble do
         source "https://rubygems.org"
 
         plugin "bundler-multilock", "#{plugin_requirement}"
-        return unless Plugin.loaded?("bundler-multilock")
-
+        #{plugin_fallback}
         gem "concurrent-ruby", "1.2.2"
       RUBY
     end
@@ -370,8 +365,7 @@ describe Bundler::Multilock::Preamble do
       expect(File.read("Gemfile")).to eq gemfile
       expect(File.read("injected.rb")).to eq(<<~RUBY)
         plugin "bundler-multilock", "#{plugin_requirement}"
-        return unless Plugin.loaded?("bundler-multilock")
-
+        #{plugin_fallback}
         gem "concurrent-ruby", "1.2.2"
       RUBY
     end

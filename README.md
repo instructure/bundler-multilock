@@ -68,7 +68,14 @@ Add additional lockfiles to your Gemfile like so:
 source "https://rubygems.org"
 
 plugin "bundler-multilock", "~> 2.0"
-return unless Plugin.loaded?("bundler-multilock")
+unless Plugin.loaded?("bundler-multilock")
+  # without the plugin, declare only the gems of the lockfile Bundler will use
+  def lockfile(name = nil, **)
+    target = ENV.fetch("BUNDLE_LOCKFILE", "")
+    selected = target.empty? ? name.nil? : File.basename(target) == File.basename(name || "Gemfile.lock")
+    yield if selected && block_given?
+  end
+end
 
 lockfile "Gemfile.rails-6.1.lock" do
   gem "rails", "~> 6.1"
@@ -81,6 +88,14 @@ end
 
 And then run `bundle install`. This will automatically generate additional
 lockfiles: `Gemfile.rails-6.1.lock` and `Gemfile.rails-7.0.lock`.
+`bundle install` adds the `unless Plugin.loaded?` block if it's missing.
+Bundler doesn't load the plugin while it pre-parses the Gemfile for plugins, or
+in a checkout without a plugin index (`.bundle/plugin`), such as an image that
+runs `bundle install` at build time and then runs a fresh checkout, or a bot
+that runs `bundle lock`. There, the fallback `lockfile` declares only the gems
+of the lockfile Bundler will use, so the Gemfile stays complete. A Gemfile with
+the older `return unless Plugin.loaded?("bundler-multilock")` guard keeps
+working, but in those places it declares no gems after the guard.
 Note that the default lockfile (`Gemfile.lock`, or set by `lockfile` without
 a block) will not contain any gems that are in the specific `lockfile` blocks.
 If you have gems you want in the default lockfile, but not in other lockfiles,
@@ -114,7 +129,14 @@ it loads the plugin when it's used directly (for example, with
 
 ```ruby
 plugin "bundler-multilock", "~> 2.0"
-return unless Plugin.loaded?("bundler-multilock")
+unless Plugin.loaded?("bundler-multilock")
+  # without the plugin, declare only the gems of the lockfile Bundler will use
+  def lockfile(name = nil, **)
+    target = ENV.fetch("BUNDLE_LOCKFILE", "")
+    selected = target.empty? ? name.nil? : File.basename(target) == File.basename(name || "Gemfile.lock")
+    yield if selected && block_given?
+  end
+end
 ```
 
 In some cases, you may want to essentially disable bundler-multilock's

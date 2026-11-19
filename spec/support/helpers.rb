@@ -103,6 +103,11 @@ module MultilockHelpers
     Bundler::Multilock::Preamble.requirement
   end
 
+  # The fallback the plugin injects into Gemfiles after its `plugin` declaration
+  def plugin_fallback
+    Bundler::Multilock::Preamble::FALLBACK
+  end
+
   # @return [String] the path to this plugin, for installing it in specs
   def plugin_path
     File.expand_path("../..", __dir__)

@@ -6,8 +6,32 @@ module Bundler
     # Keeps the preamble that loads the plugin in the Gemfile up to date:
     #
     #   plugin "bundler-multilock", "~> 2.0"
-    #   return unless Plugin.loaded?("bundler-multilock")
+    #   unless Plugin.loaded?("bundler-multilock")
+    #     def lockfile(name = nil, **)
+    #       ...
+    #     end
+    #   end
+    #
+    # Bundler doesn't load the plugin while it pre-parses the Gemfile for plugins,
+    # or in a checkout without a plugin index. There, the fallback `lockfile` keeps
+    # the Gemfile valid and declares the gems of the lockfile Bundler will use. An
+    # older preamble that returns early instead is kept as is.
     module Preamble
+      FALLBACK = <<~RUBY
+        unless Plugin.loaded?("bundler-multilock")
+          # without the plugin, declare only the gems of the lockfile Bundler will use
+          def lockfile(name = nil, **)
+            target = ENV.fetch("BUNDLE_LOCKFILE", "")
+            selected = target.empty? ? name.nil? : File.basename(target) == File.basename(name || "Gemfile.lock")
+            yield if selected && block_given?
+          end
+        end
+      RUBY
+
+      # matches both the fallback and the older `return unless` guard
+      GUARD_MATCH = /unless\s+Plugin\.loaded\?\(\s*(["'])bundler-multilock\1\s*\)/
+      private_constant :GUARD_MATCH
+
       class << self
         # @return [String] the version requirement for the plugin in the preamble
         def requirement
@@ -28,9 +52,7 @@ module Bundler
           bundle_preamble1 = <<~RUBY
             plugin "bundler-multilock", "#{requirement}"
           RUBY
-          bundle_preamble2 = <<~RUBY
-            return unless Plugin.loaded?("bundler-multilock")
-          RUBY
+          bundle_preamble2 = FALLBACK
 
           builder = Bundler::Plugin::DSL.new
           # this method is called as part of the plugin loading, but @loaded_plugin_names
@@ -61,8 +83,7 @@ module Bundler
               injection_point = (gemfile.index("\n", injection_point) || (gemfile.length - 1)) + 1
             end
           end
-          guard_match = Regexp.new(Regexp.escape(bundle_preamble2).gsub('"', %(["'])))
-          guard_present = gemfiles.each_value.any? { |contents| match_in_code?(contents, guard_match) }
+          guard_present = gemfiles.each_value.any? { |contents| match_in_code?(contents, GUARD_MATCH) }
           # if the plugin is already declared, the guard has to go after it (in
           # whichever Gemfile it's in), so that Bundler can still find the plugin
           # while it's not loaded
@@ -77,7 +98,12 @@ module Bundler
               injection_point += 1
             end
 
-            inject_specific(gemfile, gemfiles.values, injection_point, bundle_preamble2, add_newline: true)
+            inject_specific(gemfile,
+                            gemfiles.values,
+                            injection_point,
+                            bundle_preamble2,
+                            match: GUARD_MATCH,
+                            add_newline: true)
             inject_specific(gemfile,
                             gemfiles.values,
                             injection_point,
